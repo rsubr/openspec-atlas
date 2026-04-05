@@ -17,4 +17,14 @@ if [[ ${#DIRS[@]} -eq 0 ]]; then
   DIRS=(".")
 fi
 
-./dist/openspec-atlas -o "$OUTPUT" $ALL "${DIRS[@]}"
+OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+ARCH="$(uname -m)"
+[[ "$ARCH" == "aarch64" ]] && ARCH="arm64"
+
+BINARY="./dist/openspec-atlas-${OS}-${ARCH}"
+if [[ ! -x "$BINARY" ]]; then
+  echo "error: no binary found for ${OS}/${ARCH} at ${BINARY}" >&2
+  exit 1
+fi
+
+"$BINARY" -o "$OUTPUT" $ALL "${DIRS[@]}"
