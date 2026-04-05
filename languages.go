@@ -35,13 +35,34 @@ type SymbolQuery struct {
 	IsContainer bool // true → symbol can own children (class, struct, trait …)
 }
 
+// AnnotationQuery is a tree-sitter pattern run against an annotation/decorator
+// node (or its container). It must capture @name; @value is optional and should
+// capture the first string argument (e.g. the route path).
+type AnnotationQuery struct {
+	Pattern string
+}
+
+// PostProcessFn is an optional per-language hook called after symbols are
+// extracted. Used for derived data that requires cross-symbol context, such
+// as resolving fully-qualified HTTP endpoint paths in Spring Boot.
+type PostProcessFn func([]Symbol) []Symbol
+
 // LanguageConfig bundles everything openspec-atlas needs for one language.
 type LanguageConfig struct {
 	Name           string
 	Extensions     []string
 	Grammar        *sitter.Language
 	NamespaceQuery string // optional; must capture @name
-	SymbolQueries  []SymbolQuery
+
+	SymbolQueries []SymbolQuery
+
+	// Annotation extraction — see extractAnnotationsFromDecl in main.go for
+	// the three scoping strategies these fields control.
+	AnnotationContainerType string   // "modifiers", "attribute_list", "parent", or ""
+	AnnotationNodeTypes     []string // for "" and "parent" modes: direct child node types
+	AnnotationQueries       []AnnotationQuery
+
+	PostProcess PostProcessFn // optional; called after symbol extraction
 }
 
 var registry []*LanguageConfig
@@ -60,6 +81,18 @@ func init() {
 				{`(method_declaration name: (identifier) @name) @decl`, "method", false},
 				{`(constructor_declaration name: (identifier) @name) @decl`, "constructor", false},
 			},
+			// Annotations live inside a modifiers node that is a direct child of
+			// the declaration. Querying the modifiers node (not the whole declaration)
+			// prevents picking up annotations from nested method declarations.
+			AnnotationContainerType: "modifiers",
+			AnnotationQueries: []AnnotationQuery{
+				// @RestController, @Service, @Override …
+				{`(marker_annotation name: (identifier) @name)`},
+				// @RequestMapping("/api/users"), @GetMapping("/{id}") …
+				{`(annotation name: (identifier) @name arguments: (annotation_argument_list (string_literal) @value))`},
+			},
+			// Resolves Spring Boot HTTP endpoints from @GetMapping / @PostMapping etc.
+			PostProcess: resolveSpringEndpoints,
 		},
 		{
 			Name:           "go",
@@ -67,13 +100,12 @@ func init() {
 			Grammar:        golang.GetLanguage(),
 			NamespaceQuery: `(package_clause (package_identifier) @name)`,
 			SymbolQueries: []SymbolQuery{
-				// Distinguish struct/interface from generic type aliases
 				{`(type_declaration (type_spec name: (type_identifier) @name type: (struct_type))) @decl`, "struct", true},
 				{`(type_declaration (type_spec name: (type_identifier) @name type: (interface_type))) @decl`, "interface", true},
-				// Go methods are not nested inside the struct; top-level only
 				{`(function_declaration name: (identifier) @name) @decl`, "function", false},
 				{`(method_declaration name: (field_identifier) @name) @decl`, "method", false},
 			},
+			// Go has no annotation syntax.
 		},
 		{
 			Name:           "python",
@@ -82,8 +114,20 @@ func init() {
 			NamespaceQuery: ``,
 			SymbolQueries: []SymbolQuery{
 				{`(class_definition name: (identifier) @name) @decl`, "class", true},
-				// function_definition matches both top-level and methods; hierarchy sorts them out
 				{`(function_definition name: (identifier) @name) @decl`, "function", false},
+			},
+			// Python decorators appear on a decorated_definition that WRAPS the
+			// function/class. The @decl captures the inner function_definition, so
+			// we look at its parent for decorator children.
+			AnnotationContainerType: "parent",
+			AnnotationNodeTypes:     []string{"decorator"},
+			AnnotationQueries: []AnnotationQuery{
+				// @login_required
+				{`(decorator (identifier) @name)`},
+				// @app.route("/users") — capture the attribute (e.g. "app.route") as name
+				{`(decorator (call function: (attribute) @name arguments: (argument_list (string) @value)))`},
+				// @route("/users")
+				{`(decorator (call function: (identifier) @name arguments: (argument_list (string) @value)))`},
 			},
 		},
 		{
@@ -99,6 +143,16 @@ func init() {
 				{`(function_declaration name: (identifier) @name) @decl`, "function", false},
 				{`(method_definition name: (property_identifier) @name) @decl`, "method", false},
 			},
+			// Decorators (@Controller, @Get, @Injectable …) are direct children of
+			// the declaration node in TypeScript's grammar.
+			AnnotationContainerType: "",
+			AnnotationNodeTypes:     []string{"decorator"},
+			AnnotationQueries: []AnnotationQuery{
+				// @Injectable()
+				{`(decorator (identifier) @name)`},
+				// @Controller('/users'), @Get('/:id')
+				{`(decorator (call_expression function: (identifier) @name arguments: (arguments (string) @value)))`},
+			},
 		},
 		{
 			Name:           "tsx",
@@ -111,6 +165,12 @@ func init() {
 				{`(function_declaration name: (identifier) @name) @decl`, "function", false},
 				{`(method_definition name: (property_identifier) @name) @decl`, "method", false},
 			},
+			AnnotationContainerType: "",
+			AnnotationNodeTypes:     []string{"decorator"},
+			AnnotationQueries: []AnnotationQuery{
+				{`(decorator (identifier) @name)`},
+				{`(decorator (call_expression function: (identifier) @name arguments: (arguments (string) @value)))`},
+			},
 		},
 		{
 			Name:           "javascript",
@@ -122,42 +182,32 @@ func init() {
 				{`(function_declaration name: (identifier) @name) @decl`, "function", false},
 				{`(method_definition name: (property_identifier) @name) @decl`, "method", false},
 			},
-		},
-		{
-			Name:           "rust",
-			Extensions:     []string{".rs"},
-			Grammar:        rust.GetLanguage(),
-			NamespaceQuery: `(mod_item name: (identifier) @name)`,
-			SymbolQueries: []SymbolQuery{
-				{`(struct_item name: (type_identifier) @name) @decl`, "struct", true},
-				{`(enum_item name: (type_identifier) @name) @decl`, "enum", true},
-				{`(trait_item name: (type_identifier) @name) @decl`, "trait", true},
-				// impl blocks: use the type name as the symbol name
-				{`(impl_item type: (type_identifier) @name) @decl`, "impl", true},
-				{`(function_item name: (identifier) @name) @decl`, "function", false},
+			AnnotationContainerType: "",
+			AnnotationNodeTypes:     []string{"decorator"},
+			AnnotationQueries: []AnnotationQuery{
+				{`(decorator (identifier) @name)`},
+				{`(decorator (call_expression function: (identifier) @name arguments: (arguments (string) @value)))`},
 			},
 		},
 		{
-			Name:           "c",
-			Extensions:     []string{".c", ".h"},
-			Grammar:        c.GetLanguage(),
-			NamespaceQuery: ``,
+			Name:           "kotlin",
+			Extensions:     []string{".kt", ".kts"},
+			Grammar:        kotlin.GetLanguage(),
+			NamespaceQuery: `(package_header (identifier) @name)`,
 			SymbolQueries: []SymbolQuery{
-				{`(struct_specifier name: (type_identifier) @name) @decl`, "struct", true},
-				// C function: declarator is nested two levels deep
-				{`(function_definition declarator: (function_declarator declarator: (identifier) @name)) @decl`, "function", false},
+				{`(class_declaration name: (simple_identifier) @name) @decl`, "class", true},
+				{`(object_declaration name: (simple_identifier) @name) @decl`, "object", true},
+				{`(function_declaration name: (simple_identifier) @name) @decl`, "function", false},
 			},
-		},
-		{
-			Name:           "cpp",
-			Extensions:     []string{".cpp", ".cc", ".cxx", ".hpp"},
-			Grammar:        cpp.GetLanguage(),
-			NamespaceQuery: `(namespace_definition name: (identifier) @name)`,
-			SymbolQueries: []SymbolQuery{
-				{`(class_specifier name: (type_identifier) @name) @decl`, "class", true},
-				{`(struct_specifier name: (type_identifier) @name) @decl`, "struct", true},
-				{`(function_definition declarator: (function_declarator declarator: (identifier) @name)) @decl`, "function", false},
+			// Kotlin annotations are in a modifiers node, same pattern as Java.
+			AnnotationContainerType: "modifiers",
+			AnnotationQueries: []AnnotationQuery{
+				// @RestController, @Service …
+				{`(annotation (user_type (type_identifier) @name))`},
+				// @GetMapping("/users")
+				{`(annotation (user_type (type_identifier) @name) (value_arguments (value_argument (string_literal) @value)))`},
 			},
+			PostProcess: resolveSpringEndpoints,
 		},
 		{
 			Name:           "csharp",
@@ -171,27 +221,51 @@ func init() {
 				{`(enum_declaration name: (identifier) @name) @decl`, "enum", true},
 				{`(method_declaration name: (identifier) @name) @decl`, "method", false},
 			},
-		},
-		{
-			Name:           "ruby",
-			Extensions:     []string{".rb"},
-			Grammar:        ruby.GetLanguage(),
-			NamespaceQuery: `(module name: (constant) @name)`,
-			SymbolQueries: []SymbolQuery{
-				{`(class name: (constant) @name) @decl`, "class", true},
-				{`(method name: (identifier) @name) @decl`, "method", false},
-				{`(singleton_method name: (identifier) @name) @decl`, "method", false},
+			// C# attributes sit in attribute_list nodes that are direct children of
+			// the declaration. Multiple [Attr] blocks are all collected.
+			AnnotationContainerType: "attribute_list",
+			AnnotationQueries: []AnnotationQuery{
+				// [Authorize], [ApiController]
+				{`(attribute name: (identifier) @name)`},
+				// [HttpGet("/users/{id}")]
+				{`(attribute name: (identifier) @name (attribute_argument_clause (string_literal) @value))`},
 			},
 		},
 		{
-			Name:           "kotlin",
-			Extensions:     []string{".kt", ".kts"},
-			Grammar:        kotlin.GetLanguage(),
-			NamespaceQuery: `(package_header (identifier) @name)`,
+			Name:           "rust",
+			Extensions:     []string{".rs"},
+			Grammar:        rust.GetLanguage(),
+			NamespaceQuery: `(mod_item name: (identifier) @name)`,
 			SymbolQueries: []SymbolQuery{
-				{`(class_declaration name: (simple_identifier) @name) @decl`, "class", true},
-				{`(object_declaration name: (simple_identifier) @name) @decl`, "object", true},
-				{`(function_declaration name: (simple_identifier) @name) @decl`, "function", false},
+				{`(struct_item name: (type_identifier) @name) @decl`, "struct", true},
+				{`(enum_item name: (type_identifier) @name) @decl`, "enum", true},
+				{`(trait_item name: (type_identifier) @name) @decl`, "trait", true},
+				{`(impl_item type: (type_identifier) @name) @decl`, "impl", true},
+				{`(function_item name: (identifier) @name) @decl`, "function", false},
+			},
+			// Rust proc-macro attributes (#[derive(...)], #[get(...)]) are
+			// attribute_item nodes that precede the declaration as siblings,
+			// not as children. Not currently extracted.
+		},
+		{
+			Name:           "c",
+			Extensions:     []string{".c", ".h"},
+			Grammar:        c.GetLanguage(),
+			NamespaceQuery: ``,
+			SymbolQueries: []SymbolQuery{
+				{`(struct_specifier name: (type_identifier) @name) @decl`, "struct", true},
+				{`(function_definition declarator: (function_declarator declarator: (identifier) @name)) @decl`, "function", false},
+			},
+		},
+		{
+			Name:           "cpp",
+			Extensions:     []string{".cpp", ".cc", ".cxx", ".hpp"},
+			Grammar:        cpp.GetLanguage(),
+			NamespaceQuery: `(namespace_definition name: (identifier) @name)`,
+			SymbolQueries: []SymbolQuery{
+				{`(class_specifier name: (type_identifier) @name) @decl`, "class", true},
+				{`(struct_specifier name: (type_identifier) @name) @decl`, "struct", true},
+				{`(function_definition declarator: (function_declarator declarator: (identifier) @name)) @decl`, "function", false},
 			},
 		},
 		{
@@ -231,6 +305,26 @@ func init() {
 				{`(method_declaration name: (name) @name) @decl`, "method", false},
 				{`(function_definition name: (name) @name) @decl`, "function", false},
 			},
+			// PHP 8+ attributes (#[Route(...)]) use attribute_list. PHP <8 uses
+			// docblock annotations which are comments — not currently extracted.
+			AnnotationContainerType: "attribute_list",
+			AnnotationQueries: []AnnotationQuery{
+				{`(attribute name: (name) @name)`},
+				{`(attribute name: (name) @name arguments: (arguments (string) @value))`},
+			},
+		},
+		{
+			Name:           "ruby",
+			Extensions:     []string{".rb"},
+			Grammar:        ruby.GetLanguage(),
+			NamespaceQuery: `(module name: (constant) @name)`,
+			SymbolQueries: []SymbolQuery{
+				{`(class name: (constant) @name) @decl`, "class", true},
+				{`(method name: (identifier) @name) @decl`, "method", false},
+				{`(singleton_method name: (identifier) @name) @decl`, "method", false},
+			},
+			// Ruby has no annotation syntax; metadata is expressed as DSL method
+			// calls (before_action, get, post …) which are not extracted here.
 		},
 		{
 			Name:           "lua",
