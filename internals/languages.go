@@ -1,14 +1,10 @@
-package main
+package internals
 
 import (
-	"path/filepath"
-	"strings"
-
-	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/smacker/go-tree-sitter/bash"
 	"github.com/smacker/go-tree-sitter/c"
-	"github.com/smacker/go-tree-sitter/csharp"
 	"github.com/smacker/go-tree-sitter/cpp"
+	"github.com/smacker/go-tree-sitter/csharp"
 	"github.com/smacker/go-tree-sitter/golang"
 	"github.com/smacker/go-tree-sitter/java"
 	"github.com/smacker/go-tree-sitter/javascript"
@@ -23,49 +19,6 @@ import (
 	tsx "github.com/smacker/go-tree-sitter/typescript/tsx"
 	typescript "github.com/smacker/go-tree-sitter/typescript/typescript"
 )
-
-// SymbolQuery pairs a tree-sitter S-expression pattern with a kind label.
-// Every pattern MUST capture:
-//
-//	@name — the identifier node (for display name and line number)
-//	@decl — the full declaration node (for byte-range hierarchy)
-type SymbolQuery struct {
-	Pattern     string
-	Kind        string
-	IsContainer bool // true → symbol can own children (class, struct, trait …)
-}
-
-// AnnotationQuery is a tree-sitter pattern run against an annotation/decorator
-// node (or its container). It must capture @name; @value is optional and should
-// capture the first string argument (e.g. the route path).
-type AnnotationQuery struct {
-	Pattern string
-}
-
-// PostProcessFn is an optional per-language hook called after symbols are
-// extracted. Used for derived data that requires cross-symbol context, such
-// as resolving fully-qualified HTTP endpoint paths in Spring Boot.
-type PostProcessFn func([]Symbol) []Symbol
-
-// LanguageConfig bundles everything openspec-atlas needs for one language.
-type LanguageConfig struct {
-	Name           string
-	Extensions     []string
-	Grammar        *sitter.Language
-	NamespaceQuery string // optional; must capture @name
-
-	SymbolQueries []SymbolQuery
-
-	// Annotation extraction — see extractAnnotationsFromDecl in main.go for
-	// the three scoping strategies these fields control.
-	AnnotationContainerType string   // "modifiers", "attribute_list", "parent", or ""
-	AnnotationNodeTypes     []string // for "" and "parent" modes: direct child node types
-	AnnotationQueries       []AnnotationQuery
-
-	PostProcess PostProcessFn // optional; called after symbol extraction
-}
-
-var registry []*LanguageConfig
 
 func init() {
 	registry = []*LanguageConfig{
@@ -346,16 +299,5 @@ func init() {
 			},
 		},
 	}
-}
-
-func languageForFile(path string) (*LanguageConfig, bool) {
-	ext := strings.ToLower(filepath.Ext(path))
-	for _, config := range registry {
-		for _, e := range config.Extensions {
-			if e == ext {
-				return config, true
-			}
-		}
-	}
-	return nil, false
+	prepareRegistry()
 }

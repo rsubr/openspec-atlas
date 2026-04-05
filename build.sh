@@ -11,7 +11,7 @@ build() {
   local out="dist/openspec-atlas-${os}-${arch}"
   echo "building ${out}..."
   CGO_ENABLED=1 GOOS="${os}" GOARCH="${goarch}" CC="${cc}" \
-    go build -ldflags="${LDFLAGS}" -o "${out}" .
+    go build -ldflags="${LDFLAGS}" -o "${out}" ./cmd/openspec-atlas
   echo "done: ${out}"
 }
 
