@@ -1,11 +1,17 @@
 # openspec-atlas
 
-Static code scanner that extracts the structure of a codebase into a single JSON file.
+`openspec-atlas` scans a legacy codebase — human-written, any language — and produces a structured atlas of its architecture. The atlas is a single JSON file that AI agents can consume directly, without reading source code.
 
-Part of the OpenSpec pipeline:
+A `SKILL.md` is included in this repo. It is an agent skill that automates the full pipeline: scan the codebase, then generate OpenSpec-compatible architecture documentation from the atlas. **After installing the binary, the skill must be manually registered with your AI agent.** See [Installing the Agent Skill](#installing-the-agent-skill) below.
+
+Supported agents: **Claude Code**, **OpenAI Codex CLI**, **Gemini CLI**.
+
+---
+
+## Pipeline
 
 ```
-Codebase → openspec-atlas → structure.json → LLM Summarization → OpenSpec Docs
+Legacy Codebase → openspec-atlas → atlas.json → Agent Skill → OpenSpec Docs
 ```
 
 ---
@@ -105,23 +111,17 @@ Types that contain methods have a `children` array:
 
 ```bash
 # Scan current directory → structure.json
-./run.sh
+openspec-atlas
 
 # Scan one or more directories
-./run.sh /path/to/repo
-./run.sh /path/to/repo1 /path/to/repo2
+openspec-atlas /path/to/repo
+openspec-atlas /path/to/repo1 /path/to/repo2
 
 # Custom output file
-./run.sh -o output.json /path/to/repo
+openspec-atlas -o output.json /path/to/repo
 
 # Ignore .gitignore files and scan everything
-./run.sh -all /path/to/repo
-```
-
-Or use the binary directly:
-
-```bash
-./dist/openspec-atlas-linux-x86_64 [-o output.json] [-all] <dir> [dir ...]
+openspec-atlas -all /path/to/repo
 ```
 
 ### Flags
@@ -141,7 +141,23 @@ Pass `-all` to disable this and scan everything.
 
 ---
 
-## Building
+## Installation
+
+Download the binary for your platform from the [releases page](https://github.com/rsubr/openspec-atlas/releases) and place it in your PATH:
+
+```bash
+# Linux x86_64
+sudo cp openspec-atlas-linux-x86_64 /usr/local/bin/openspec-atlas
+sudo chmod +x /usr/local/bin/openspec-atlas
+
+# Linux arm64
+sudo cp openspec-atlas-linux-arm64 /usr/local/bin/openspec-atlas
+sudo chmod +x /usr/local/bin/openspec-atlas
+```
+
+---
+
+## Building from Source
 
 Requires Go 1.21+ and `aarch64-linux-gnu-gcc` for the ARM64 cross-build.
 
@@ -156,8 +172,6 @@ dist/openspec-atlas-linux-x86_64   # statically linked, stripped
 dist/openspec-atlas-linux-arm64    # statically linked, stripped
 ```
 
-`run.sh` auto-detects the current OS and architecture and selects the correct binary.
-
 ---
 
 ## Architecture
@@ -169,6 +183,86 @@ Built on [tree-sitter](https://tree-sitter.github.io/tree-sitter/) via [go-tree-
 - A flag per query indicating whether the symbol is a container (can own children)
 
 Hierarchy is resolved by comparing byte ranges from `@decl` captures — no language-specific logic needed in the extraction engine.
+
+---
+
+## Installing the Agent Skill
+
+`SKILL.md` defines a four-step pipeline:
+
+1. Run `openspec-atlas` to produce `structure.json`
+2. Read `structure.json`
+3. Generate OpenSpec documentation (project, system, architecture, module, and package docs)
+4. Write all files to the `openspec/` directory
+
+The binary must be installed and available in your `PATH` before registering the skill.
+
+---
+
+### Claude Code
+
+Copy `SKILL.md` into your Claude skills directory. The skill can be installed globally (available in all projects) or per-project.
+
+**Global install:**
+```bash
+mkdir -p ~/.claude/skills/openspec-atlas-create
+cp SKILL.md ~/.claude/skills/openspec-atlas-create/SKILL.md
+```
+
+**Project install:**
+```bash
+mkdir -p .claude/skills/openspec-atlas-create
+cp SKILL.md .claude/skills/openspec-atlas-create/SKILL.md
+```
+
+Invoke in any Claude Code session:
+```
+/openspec-atlas-create
+/openspec-atlas-create /path/to/repo
+/openspec-atlas-create /path/to/repo1 /path/to/repo2
+```
+
+---
+
+### OpenAI Codex CLI
+
+Codex reads instructions from an `AGENTS.md` file. Append the skill body to your global or project-level instructions file.
+
+**Global install:**
+```bash
+cat SKILL.md >> ~/.codex/AGENTS.md
+```
+
+**Project install:**
+```bash
+cat SKILL.md >> AGENTS.md
+```
+
+Then ask Codex:
+```
+Run openspec-atlas on this repo and generate OpenSpec documentation.
+```
+
+---
+
+### Gemini CLI
+
+Gemini CLI reads instructions from a `GEMINI.md` file. Append the skill body to your global or project-level file.
+
+**Global install:**
+```bash
+cat SKILL.md >> ~/.gemini/GEMINI.md
+```
+
+**Project install:**
+```bash
+cat SKILL.md >> GEMINI.md
+```
+
+Then ask Gemini:
+```
+Run openspec-atlas on this repo and generate OpenSpec documentation.
+```
 
 ---
 

@@ -13,12 +13,12 @@ Run openspec-atlas to produce `structure.json`.
 
 If arguments were provided, scan those directories:
 ```
-./run.sh -o structure.json $ARGUMENTS
+openspec-atlas -o structure.json $ARGUMENTS
 ```
 
 If no arguments were provided, scan the current directory:
 ```
-./run.sh -o structure.json
+openspec-atlas -o structure.json
 ```
 
 ## Step 2 — Read structure.json
