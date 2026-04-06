@@ -17,6 +17,11 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 }
 
 func run(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 1 && args[0] == "--version" {
+		fmt.Fprintln(stdout, "openspec-atlas", Version)
+		return nil
+	}
+
 	fs := flag.NewFlagSet("openspec-atlas", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
