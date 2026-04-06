@@ -298,6 +298,26 @@ func init() {
 				{`(function_definition name: (word) @name) @decl`, "function", false},
 			},
 		},
+		{
+			// Vue Single File Components: extract the <script> block and parse
+			// it with the TypeScript grammar (a superset of JavaScript).
+			Name:         "vue",
+			Extensions:   []string{".vue"},
+			Grammar:      typescript.GetLanguage(),
+			SrcTransform: extractVueScript,
+			SymbolQueries: []SymbolQuery{
+				{`(class_declaration name: (type_identifier) @name) @decl`, "class", true},
+				{`(interface_declaration name: (type_identifier) @name) @decl`, "interface", true},
+				{`(function_declaration name: (identifier) @name) @decl`, "function", false},
+				{`(method_definition name: (property_identifier) @name) @decl`, "method", false},
+			},
+			AnnotationContainerType: "",
+			AnnotationNodeTypes:     []string{"decorator"},
+			AnnotationQueries: []AnnotationQuery{
+				{`(decorator (identifier) @name)`},
+				{`(decorator (call_expression function: (identifier) @name arguments: (arguments (string) @value)))`},
+			},
+		},
 	}
 	prepareRegistry()
 }

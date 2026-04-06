@@ -54,7 +54,8 @@ type LanguageConfig struct {
 	AnnotationNodeTypes     []string // for "" and "parent" modes: direct child node types
 	AnnotationQueries       []AnnotationQuery
 
-	PostProcess PostProcessFn // optional; called after symbol extraction
+	PostProcess  PostProcessFn      // optional; called after symbol extraction
+	SrcTransform func([]byte) []byte // optional; transforms source before parsing (e.g. Vue SFC script extraction)
 
 	compiledNamespaceQuery *sitter.Query
 	compiledSymbolQueries  []compiledSymbolQuery

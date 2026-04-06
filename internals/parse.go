@@ -16,6 +16,10 @@ func parseFile(path string, config *LanguageConfig) (FileInfo, error) {
 		return FileInfo{}, err
 	}
 
+	if config.SrcTransform != nil {
+		src = config.SrcTransform(src)
+	}
+
 	parser := sitter.NewParser()
 	parser.SetLanguage(config.Grammar)
 	tree, err := parser.ParseCtx(context.Background(), nil, src)
