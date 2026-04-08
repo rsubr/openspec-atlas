@@ -3,12 +3,12 @@ package internal
 import "strings"
 
 // springHTTPMappings maps Spring annotation names to HTTP verbs.
-var springHTTPMappings = map[string]string{
-	"GetMapping":    "GET",
-	"PostMapping":   "POST",
-	"PutMapping":    "PUT",
-	"DeleteMapping": "DELETE",
-	"PatchMapping":  "PATCH",
+var springHTTPMappings = map[string]HTTPMethod{
+	"GetMapping":    HTTPMethodGet,
+	"PostMapping":   HTTPMethodPost,
+	"PutMapping":    HTTPMethodPut,
+	"DeleteMapping": HTTPMethodDelete,
+	"PatchMapping":  HTTPMethodPatch,
 }
 
 // resolveSpringEndpoints is the PostProcess function for Java and Kotlin.

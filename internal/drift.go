@@ -9,6 +9,8 @@ import (
 	"sort"
 )
 
+const DriftNone DriftKind = "none"
+
 // DriftKind classifies how an item changed between baseline and current.
 type DriftKind string
 
@@ -43,11 +45,20 @@ type DriftReport struct {
 	Summary      DriftSummary `json:"summary"`
 }
 
+type driftOptions struct {
+	baselinePath string
+	currentPath  string
+	jsonOut      bool
+	failOn       DriftKind
+	allFiles     bool
+	dirs         []string
+}
+
 // parseDriftKind validates a --fail-on flag value and returns the corresponding
 // DriftKind. "none" is accepted and returned as an empty DriftKind.
 func parseDriftKind(s string) (DriftKind, error) {
 	switch s {
-	case "added", "removed", "changed", "none":
+	case string(DriftAdded), string(DriftRemoved), string(DriftChanged), string(DriftNone):
 		return DriftKind(s), nil
 	default:
 		return "", fmt.Errorf("invalid --fail-on value %q: must be added, removed, changed, or none", s)
@@ -89,7 +100,7 @@ func flattenEndpoints(files []FileInfo) map[string]string {
 	walk = func(syms []Symbol, file string) {
 		for _, s := range syms {
 			if s.Endpoint != nil {
-				key := s.Endpoint.Method + " " + s.Endpoint.Path
+				key := string(s.Endpoint.Method) + " " + s.Endpoint.Path
 				m[key] = file
 			}
 			walk(s.Children, file)
@@ -107,9 +118,9 @@ func flattenEndpoints(files []FileInfo) map[string]string {
 // item against its current counterpart and returns (issue, true) when they differ.
 func diffByKey[T any](
 	baseline, current []T,
-	key     func(T) string,
+	key func(T) string,
 	removed func(b T) DriftIssue,
-	added   func(c T) DriftIssue,
+	added func(c T) DriftIssue,
 	changed func(b, c T) (DriftIssue, bool),
 ) []DriftIssue {
 	bMap := make(map[string]T, len(baseline))
@@ -225,12 +236,12 @@ func diffEnvVars(baseline, current []EnvVar) []DriftIssue {
 func diffSchemaModels(baseline, current []SchemaModel) []DriftIssue {
 	return diffByKey(
 		baseline, current,
-		func(m SchemaModel) string { return m.ORM + "::" + m.Name },
+		func(m SchemaModel) string { return string(m.ORM) + "::" + m.Name },
 		func(b SchemaModel) DriftIssue {
-			return DriftIssue{Kind: DriftRemoved, Category: "schema_model", Name: b.Name, File: b.File, Detail: b.ORM}
+			return DriftIssue{Kind: DriftRemoved, Category: "schema_model", Name: b.Name, File: b.File, Detail: string(b.ORM)}
 		},
 		func(c SchemaModel) DriftIssue {
-			return DriftIssue{Kind: DriftAdded, Category: "schema_model", Name: c.Name, File: c.File, Detail: c.ORM}
+			return DriftIssue{Kind: DriftAdded, Category: "schema_model", Name: c.Name, File: c.File, Detail: string(c.ORM)}
 		},
 		func(b, c SchemaModel) (DriftIssue, bool) {
 			if len(c.Fields) == len(b.Fields) {
@@ -247,10 +258,10 @@ func diffMiddleware(baseline, current []MiddlewareItem) []DriftIssue {
 		baseline, current,
 		func(m MiddlewareItem) string { return m.Framework + "::" + m.File + "::" + m.Name },
 		func(b MiddlewareItem) DriftIssue {
-			return DriftIssue{Kind: DriftRemoved, Category: "middleware", Name: b.Name, File: b.File, Detail: b.Framework + "/" + b.Type}
+			return DriftIssue{Kind: DriftRemoved, Category: "middleware", Name: b.Name, File: b.File, Detail: b.Framework + "/" + string(b.Type)}
 		},
 		func(c MiddlewareItem) DriftIssue {
-			return DriftIssue{Kind: DriftAdded, Category: "middleware", Name: c.Name, File: c.File, Detail: c.Framework + "/" + c.Type}
+			return DriftIssue{Kind: DriftAdded, Category: "middleware", Name: c.Name, File: c.File, Detail: c.Framework + "/" + string(c.Type)}
 		},
 		nil,
 	)
@@ -259,12 +270,12 @@ func diffMiddleware(baseline, current []MiddlewareItem) []DriftIssue {
 func diffUIComponents(baseline, current []UIComponent) []DriftIssue {
 	return diffByKey(
 		baseline, current,
-		func(c UIComponent) string { return c.Framework + "::" + c.File + "::" + c.Name },
+		func(c UIComponent) string { return string(c.Framework) + "::" + c.File + "::" + c.Name },
 		func(b UIComponent) DriftIssue {
-			return DriftIssue{Kind: DriftRemoved, Category: "ui_component", Name: b.Name, File: b.File, Detail: b.Framework}
+			return DriftIssue{Kind: DriftRemoved, Category: "ui_component", Name: b.Name, File: b.File, Detail: string(b.Framework)}
 		},
 		func(c UIComponent) DriftIssue {
-			return DriftIssue{Kind: DriftAdded, Category: "ui_component", Name: c.Name, File: c.File, Detail: c.Framework}
+			return DriftIssue{Kind: DriftAdded, Category: "ui_component", Name: c.Name, File: c.File, Detail: string(c.Framework)}
 		},
 		nil,
 	)
@@ -334,6 +345,29 @@ func loadOutputFile(path string) (Output, error) {
 }
 
 func runDrift(args []string, stdout, stderr io.Writer) error {
+	opts, err := parseDriftOptions(args, stderr)
+	if err != nil {
+		return err
+	}
+
+	baseline, err := loadOutputFile(opts.baselinePath)
+	if err != nil {
+		return err
+	}
+
+	current, currentFile, err := loadCurrentOutput(opts, stderr)
+	if err != nil {
+		return err
+	}
+
+	report := buildDriftReport(baseline, current, opts.baselinePath, currentFile)
+	if err := emitDriftReport(report, opts.jsonOut, stdout); err != nil {
+		return err
+	}
+	return checkDriftFailure(report, opts.failOn)
+}
+
+func parseDriftOptions(args []string, stderr io.Writer) (driftOptions, error) {
 	fs := flag.NewFlagSet("openspec-atlas drift", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
@@ -348,55 +382,67 @@ func runDrift(args []string, stdout, stderr io.Writer) error {
 	}
 
 	if err := fs.Parse(args); err != nil {
-		return err
+		return driftOptions{}, err
 	}
 	if *baselinePath == "" {
 		fs.Usage()
-		return fmt.Errorf("--baseline is required")
+		return driftOptions{}, fmt.Errorf("--baseline is required")
 	}
 
 	failOnKind, err := parseDriftKind(*failOn)
 	if err != nil {
-		return err
+		return driftOptions{}, err
+	}
+	if *currentPath == "" && len(fs.Args()) == 0 {
+		fs.Usage()
+		return driftOptions{}, fmt.Errorf("provide at least one directory to scan, or --current <path>")
 	}
 
-	baseline, err := loadOutputFile(*baselinePath)
-	if err != nil {
-		return err
+	return driftOptions{
+		baselinePath: *baselinePath,
+		currentPath:  *currentPath,
+		jsonOut:      *jsonOut,
+		failOn:       failOnKind,
+		allFiles:     *allFiles,
+		dirs:         fs.Args(),
+	}, nil
+}
+
+func loadCurrentOutput(opts driftOptions, stderr io.Writer) (Output, string, error) {
+	if opts.currentPath != "" {
+		current, err := loadOutputFile(opts.currentPath)
+		return current, opts.currentPath, err
 	}
-
-	var current Output
-	usedCurrentFile := *currentPath
-	if *currentPath != "" {
-		current, err = loadOutputFile(*currentPath)
-		if err != nil {
-			return err
-		}
-	} else {
-		dirs := fs.Args()
-		if len(dirs) == 0 {
-			fs.Usage()
-			return fmt.Errorf("provide at least one directory to scan, or --current <path>")
-		}
-		current = scanProjects(dirs, *allFiles, io.Discard, stderr)
+	if len(opts.dirs) == 0 {
+		return Output{}, "", fmt.Errorf("provide at least one directory to scan, or --current <path>")
 	}
+	return scanProjects(opts.dirs, opts.allFiles, io.Discard, stderr), "", nil
+}
 
-	report := buildDriftReport(baseline, current, *baselinePath, usedCurrentFile)
-
-	if *jsonOut {
-		data, err := json.MarshalIndent(report, "", "  ")
-		if err != nil {
-			return fmt.Errorf("marshal report: %w", err)
-		}
-		fmt.Fprintln(stdout, string(data))
-	} else {
+func emitDriftReport(report DriftReport, jsonOut bool, stdout io.Writer) error {
+	if !jsonOut {
 		printDriftReport(report, stdout)
+		return nil
 	}
 
-	if failOnKind != "none" && countKind(report.Issues, failOnKind) > 0 {
-		return fmt.Errorf("drift detected: %d %s issue(s)", countKind(report.Issues, failOnKind), failOnKind)
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal report: %w", err)
 	}
+	fmt.Fprintln(stdout, string(data))
 	return nil
+}
+
+func checkDriftFailure(report DriftReport, failOn DriftKind) error {
+	if failOn == DriftNone {
+		return nil
+	}
+
+	count := countKind(report.Issues, failOn)
+	if count == 0 {
+		return nil
+	}
+	return fmt.Errorf("drift detected: %d %s issue(s)", count, failOn)
 }
 
 func countKind(issues []DriftIssue, kind DriftKind) int {

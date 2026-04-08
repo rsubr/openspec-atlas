@@ -4,6 +4,41 @@ import (
 	"testing"
 )
 
+func TestParseDriftKind(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input   string
+		want    DriftKind
+		wantErr bool
+	}{
+		{input: "added", want: DriftAdded},
+		{input: "removed", want: DriftRemoved},
+		{input: "changed", want: DriftChanged},
+		{input: "none", want: DriftNone},
+		{input: "broken", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
+			got, err := parseDriftKind(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseDriftKind(%q) error = %v", tt.input, err)
+			}
+			if got != tt.want {
+				t.Fatalf("parseDriftKind(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 // helper: find issues of a given kind and category
 func findIssues(issues []DriftIssue, kind DriftKind, category string) []DriftIssue {
 	var out []DriftIssue
@@ -109,19 +144,19 @@ func TestDiffSymbols_Nested(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestDiffEndpoints(t *testing.T) {
-	ep := func(method, path string) *Endpoint { return &Endpoint{Method: method, Path: path} }
+	ep := func(method HTTPMethod, path string) *Endpoint { return &Endpoint{Method: method, Path: path} }
 	base := []FileInfo{{
 		Path: "handler.go",
 		Symbols: []Symbol{
-			{Name: "GetUser", Kind: "method", Endpoint: ep("GET", "/users/{id}")},
-			{Name: "DeleteUser", Kind: "method", Endpoint: ep("DELETE", "/users/{id}")},
+			{Name: "GetUser", Kind: "method", Endpoint: ep(HTTPMethodGet, "/users/{id}")},
+			{Name: "DeleteUser", Kind: "method", Endpoint: ep(HTTPMethodDelete, "/users/{id}")},
 		},
 	}}
 	cur := []FileInfo{{
 		Path: "handler.go",
 		Symbols: []Symbol{
-			{Name: "GetUser", Kind: "method", Endpoint: ep("GET", "/users/{id}")},
-			{Name: "CreateUser", Kind: "method", Endpoint: ep("POST", "/users")},
+			{Name: "GetUser", Kind: "method", Endpoint: ep(HTTPMethodGet, "/users/{id}")},
+			{Name: "CreateUser", Kind: "method", Endpoint: ep(HTTPMethodPost, "/users")},
 			// DeleteUser removed
 		},
 	}}
@@ -149,9 +184,9 @@ func TestDiffEnvVars(t *testing.T) {
 		{Name: "OLD_VAR"},
 	}
 	cur := []EnvVar{
-		{Name: "DATABASE_URL", Required: true},          // unchanged
+		{Name: "DATABASE_URL", Required: true},               // unchanged
 		{Name: "API_KEY", HasDefault: false, Required: true}, // changed
-		{Name: "NEW_VAR"},                               // added
+		{Name: "NEW_VAR"}, // added
 		// OLD_VAR removed
 	}
 
@@ -179,12 +214,12 @@ func TestDiffEnvVars(t *testing.T) {
 
 func TestDiffSchemaModels(t *testing.T) {
 	base := []SchemaModel{
-		{Name: "User", ORM: "prisma", Fields: []SchemaField{{Name: "id"}, {Name: "email"}}},
-		{Name: "Post", ORM: "prisma", Fields: []SchemaField{{Name: "id"}}},
+		{Name: "User", ORM: ORMPrisma, Fields: []SchemaField{{Name: "id"}, {Name: "email"}}},
+		{Name: "Post", ORM: ORMPrisma, Fields: []SchemaField{{Name: "id"}}},
 	}
 	cur := []SchemaModel{
-		{Name: "User", ORM: "prisma", Fields: []SchemaField{{Name: "id"}, {Name: "email"}, {Name: "name"}}}, // field added
-		{Name: "Comment", ORM: "prisma"},                                                                    // new model
+		{Name: "User", ORM: ORMPrisma, Fields: []SchemaField{{Name: "id"}, {Name: "email"}, {Name: "name"}}}, // field added
+		{Name: "Comment", ORM: ORMPrisma}, // new model
 		// Post removed
 	}
 
@@ -212,12 +247,12 @@ func TestDiffSchemaModels(t *testing.T) {
 
 func TestDiffMiddleware(t *testing.T) {
 	base := []MiddlewareItem{
-		{Name: "cors", Framework: "express", File: "server.ts", Type: "cors"},
-		{Name: "helmet", Framework: "express", File: "server.ts", Type: "auth"},
+		{Name: "cors", Framework: "express", File: "server.ts", Type: MiddlewareCORS},
+		{Name: "helmet", Framework: "express", File: "server.ts", Type: MiddlewareAuth},
 	}
 	cur := []MiddlewareItem{
-		{Name: "cors", Framework: "express", File: "server.ts", Type: "cors"},
-		{Name: "morgan", Framework: "express", File: "server.ts", Type: "logging"},
+		{Name: "cors", Framework: "express", File: "server.ts", Type: MiddlewareCORS},
+		{Name: "morgan", Framework: "express", File: "server.ts", Type: MiddlewareLogging},
 		// helmet removed
 	}
 

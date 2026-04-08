@@ -92,7 +92,7 @@ func TestResolveSpringEndpoints(t *testing.T) {
 	if got[0].Children[0].Endpoint == nil || got[0].Children[0].Endpoint.Path != "/api/users" {
 		t.Fatalf("expected GET endpoint on listUsers, got %#v", got[0].Children[0].Endpoint)
 	}
-	if got[0].Children[1].Endpoint == nil || got[0].Children[1].Endpoint.Method != "POST" || got[0].Children[1].Endpoint.Path != "/api/users/create" {
+	if got[0].Children[1].Endpoint == nil || got[0].Children[1].Endpoint.Method != HTTPMethodPost || got[0].Children[1].Endpoint.Path != "/api/users/create" {
 		t.Fatalf("expected POST endpoint on createUser, got %#v", got[0].Children[1].Endpoint)
 	}
 }

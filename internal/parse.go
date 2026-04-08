@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"fmt"
 	"os"
 
 	sitter "github.com/smacker/go-tree-sitter"
@@ -27,9 +26,6 @@ func parseFile(path string, config *LanguageConfig) (FileInfo, error) {
 		return FileInfo{}, err
 	}
 	root := tree.RootNode()
-	if root.HasError() {
-		fmt.Fprintf(os.Stderr, "syntax errors in %s\n", path)
-	}
 
 	fi := FileInfo{Language: config.Name}
 	fi.Namespace = extractNamespace(root, src, config)

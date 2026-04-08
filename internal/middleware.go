@@ -11,34 +11,34 @@ import (
 type middlewareRule struct {
 	re        *regexp.Regexp
 	name      string // static name; if empty, use capture group 1
-	mwType    string
+	mwType    MiddlewareType
 	framework string
 }
 
 // expressRules detects Express / Fastify / Hono middleware registrations.
 var expressRules = []middlewareRule{
 	// app.use(helmet())
-	{regexp.MustCompile(`\.use\(\s*helmet\s*\(`), "helmet", "auth", "express"},
+	{regexp.MustCompile(`\.use\(\s*helmet\s*\(`), "helmet", MiddlewareAuth, "express"},
 	// app.use(cors())
-	{regexp.MustCompile(`\.use\(\s*cors\s*\(`), "cors", "cors", "express"},
+	{regexp.MustCompile(`\.use\(\s*cors\s*\(`), "cors", MiddlewareCORS, "express"},
 	// app.use(rateLimit(...))
-	{regexp.MustCompile(`\.use\(\s*(?:rateLimit|rateLimiter|expressRateLimit)\s*\(`), "rate-limit", "rate-limit", "express"},
+	{regexp.MustCompile(`\.use\(\s*(?:rateLimit|rateLimiter|expressRateLimit)\s*\(`), "rate-limit", MiddlewareRateLimit, "express"},
 	// app.use(express.json()) or bodyParser.json()
-	{regexp.MustCompile(`\.use\(\s*(?:express\.json|bodyParser\.json|bodyParser\.urlencoded)\s*\(`), "body-parser", "validation", "express"},
+	{regexp.MustCompile(`\.use\(\s*(?:express\.json|bodyParser\.json|bodyParser\.urlencoded)\s*\(`), "body-parser", MiddlewareValidation, "express"},
 	// app.use(morgan(...))
-	{regexp.MustCompile(`\.use\(\s*morgan\s*\(`), "morgan", "logging", "express"},
+	{regexp.MustCompile(`\.use\(\s*morgan\s*\(`), "morgan", MiddlewareLogging, "express"},
 	// app.use(passport.initialize())
-	{regexp.MustCompile(`\.use\(\s*passport\b`), "passport", "auth", "express"},
+	{regexp.MustCompile(`\.use\(\s*passport\b`), "passport", MiddlewareAuth, "express"},
 	// app.use(jwtMiddleware) or jwt({...})
-	{regexp.MustCompile(`\.use\(\s*jwt\s*[({]`), "jwt", "auth", "express"},
+	{regexp.MustCompile(`\.use\(\s*jwt\s*[({]`), "jwt", MiddlewareAuth, "express"},
 	// app.use(session(...))
-	{regexp.MustCompile(`\.use\(\s*session\s*\(`), "session", "auth", "express"},
+	{regexp.MustCompile(`\.use\(\s*session\s*\(`), "session", MiddlewareAuth, "express"},
 	// app.use(errorHandler)
-	{regexp.MustCompile(`\.use\(\s*errorHandler\b`), "errorHandler", "error-handler", "express"},
+	{regexp.MustCompile(`\.use\(\s*errorHandler\b`), "errorHandler", MiddlewareErrorHandler, "express"},
 	// Generic: app.use(someMiddleware) — capture name
-	{regexp.MustCompile(`\.use\(\s*(\w+)\s*\)`), "", "custom", "express"},
+	{regexp.MustCompile(`\.use\(\s*(\w+)\s*\)`), "", MiddlewareCustom, "express"},
 	// router.use(...)
-	{regexp.MustCompile(`router\.use\(\s*(\w+)`), "", "custom", "express"},
+	{regexp.MustCompile(`router\.use\(\s*(\w+)`), "", MiddlewareCustom, "express"},
 }
 
 // nestjsMiddlewareRules extracts NestJS guard/interceptor/pipe decorators
@@ -47,19 +47,19 @@ var expressRules = []middlewareRule{
 
 // fastapiRules detects FastAPI Depends() usage.
 var fastapiRules = []middlewareRule{
-	{regexp.MustCompile(`Depends\(\s*(\w+)\s*\)`), "", "custom", "fastapi"},
-	{regexp.MustCompile(`Depends\(\s*(\w+(?:\.\w+)?)\s*\)`), "", "custom", "fastapi"},
+	{regexp.MustCompile(`Depends\(\s*(\w+)\s*\)`), "", MiddlewareCustom, "fastapi"},
+	{regexp.MustCompile(`Depends\(\s*(\w+(?:\.\w+)?)\s*\)`), "", MiddlewareCustom, "fastapi"},
 }
 
 // nestjsAnnotationMiddleware maps NestJS decorator names to middleware types.
 var nestjsAnnotationMiddleware = map[string]struct {
-	mwType string
+	mwType MiddlewareType
 	name   string
 }{
-	"UseGuards":       {"auth", "UseGuards"},
-	"UseInterceptors": {"custom", "UseInterceptors"},
-	"UsePipes":        {"validation", "UsePipes"},
-	"UseFilters":      {"error-handler", "UseFilters"},
+	"UseGuards":       {MiddlewareAuth, "UseGuards"},
+	"UseInterceptors": {MiddlewareCustom, "UseInterceptors"},
+	"UsePipes":        {MiddlewareValidation, "UsePipes"},
+	"UseFilters":      {MiddlewareErrorHandler, "UseFilters"},
 }
 
 // collectMiddlewareFromSymbols extracts NestJS middleware from already-parsed

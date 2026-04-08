@@ -1,5 +1,56 @@
 package internal
 
+type HTTPMethod string
+
+const (
+	HTTPMethodGet     HTTPMethod = "GET"
+	HTTPMethodPost    HTTPMethod = "POST"
+	HTTPMethodPut     HTTPMethod = "PUT"
+	HTTPMethodDelete  HTTPMethod = "DELETE"
+	HTTPMethodPatch   HTTPMethod = "PATCH"
+	HTTPMethodHead    HTTPMethod = "HEAD"
+	HTTPMethodOptions HTTPMethod = "OPTIONS"
+)
+
+type HTTPMatchConfidence string
+
+const (
+	HTTPMatchExact HTTPMatchConfidence = "exact"
+	HTTPMatchPath  HTTPMatchConfidence = "path"
+	HTTPMatchFuzzy HTTPMatchConfidence = "fuzzy"
+)
+
+type ORMKind string
+
+const (
+	ORMSQL        ORMKind = "sql"
+	ORMPrisma     ORMKind = "prisma"
+	ORMTypeORM    ORMKind = "typeorm"
+	ORMSQLAlchemy ORMKind = "sqlalchemy"
+	ORMGORM       ORMKind = "gorm"
+)
+
+type MiddlewareType string
+
+const (
+	MiddlewareAuth         MiddlewareType = "auth"
+	MiddlewareCORS         MiddlewareType = "cors"
+	MiddlewareRateLimit    MiddlewareType = "rate-limit"
+	MiddlewareValidation   MiddlewareType = "validation"
+	MiddlewareLogging      MiddlewareType = "logging"
+	MiddlewareErrorHandler MiddlewareType = "error-handler"
+	MiddlewareCustom       MiddlewareType = "custom"
+)
+
+type UIFramework string
+
+const (
+	UIFrameworkReact   UIFramework = "react"
+	UIFrameworkVue     UIFramework = "vue"
+	UIFrameworkSvelte  UIFramework = "svelte"
+	UIFrameworkAngular UIFramework = "angular"
+)
+
 // Annotation holds a decorator/attribute name and its optional string argument.
 type Annotation struct {
 	Name  string `json:"name"`
@@ -9,8 +60,8 @@ type Annotation struct {
 // Endpoint is populated by language-specific post-processors when a symbol
 // is identified as an HTTP handler (e.g. Spring Boot, NestJS, ASP.NET).
 type Endpoint struct {
-	Method string `json:"method"` // GET POST PUT DELETE PATCH
-	Path   string `json:"path"`   // fully resolved path including class-level prefix
+	Method HTTPMethod `json:"method"` // GET POST PUT DELETE PATCH
+	Path   string     `json:"path"`   // fully resolved path including class-level prefix
 }
 
 type Symbol struct {
@@ -50,12 +101,12 @@ type EnvVar struct {
 // HttpEdge represents a detected HTTP call from a frontend file to a backend
 // route handler, with a confidence level indicating how precisely the match was made.
 type HttpEdge struct {
-	CallerFile  string `json:"caller_file"`
-	CallerLine  int    `json:"caller_line"`
-	Method      string `json:"method"`
-	Path        string `json:"path"`
-	Confidence  string `json:"confidence"` // "exact", "path", "fuzzy"
-	HandlerFile string `json:"handler_file,omitempty"`
+	CallerFile  string              `json:"caller_file"`
+	CallerLine  int                 `json:"caller_line"`
+	Method      HTTPMethod          `json:"method"`
+	Path        string              `json:"path"`
+	Confidence  HTTPMatchConfidence `json:"confidence"` // "exact", "path", "fuzzy"
+	HandlerFile string              `json:"handler_file,omitempty"`
 }
 
 // SchemaField is a column or field within a database model.
@@ -70,26 +121,26 @@ type SchemaModel struct {
 	Name   string        `json:"name"`
 	File   string        `json:"file"`
 	Line   int           `json:"line"`
-	ORM    string        `json:"orm"` // "sql", "prisma", "typeorm", "sqlalchemy", "gorm"
+	ORM    ORMKind       `json:"orm"` // "sql", "prisma", "typeorm", "sqlalchemy", "gorm"
 	Fields []SchemaField `json:"fields,omitempty"`
 }
 
 // MiddlewareItem is a detected middleware registration.
 type MiddlewareItem struct {
-	Name      string `json:"name"`
-	Type      string `json:"type"` // "auth", "cors", "rate-limit", "validation", "logging", "error-handler", "custom"
-	Framework string `json:"framework"`
-	File      string `json:"file"`
-	Line      int    `json:"line"`
+	Name      string         `json:"name"`
+	Type      MiddlewareType `json:"type"` // "auth", "cors", "rate-limit", "validation", "logging", "error-handler", "custom"
+	Framework string         `json:"framework"`
+	File      string         `json:"file"`
+	Line      int            `json:"line"`
 }
 
 // UIComponent is a detected frontend UI component.
 type UIComponent struct {
-	Name      string   `json:"name"`
-	Framework string   `json:"framework"` // "react", "vue", "svelte", "angular"
-	File      string   `json:"file"`
-	Line      int      `json:"line"`
-	Props     []string `json:"props,omitempty"`
+	Name      string      `json:"name"`
+	Framework UIFramework `json:"framework"` // "react", "vue", "svelte", "angular"
+	File      string      `json:"file"`
+	Line      int         `json:"line"`
+	Props     []string    `json:"props,omitempty"`
 }
 
 // rawSym is an intermediate flat representation before the hierarchy is built.

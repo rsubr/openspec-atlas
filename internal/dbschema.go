@@ -12,6 +12,15 @@ var (
 	prismaFieldRe = regexp.MustCompile(`^\s+(\w+)\s+(\w+)(\?)?\s`)
 )
 
+func newSchemaModel(name, file string, line int, orm ORMKind) SchemaModel {
+	return SchemaModel{
+		Name: name,
+		File: file,
+		Line: line,
+		ORM:  orm,
+	}
+}
+
 func extractPrismaModels(src []byte, file string) []SchemaModel {
 	var models []SchemaModel
 	lines := splitLines(src)
@@ -20,12 +29,7 @@ func extractPrismaModels(src []byte, file string) []SchemaModel {
 		if m == nil {
 			continue
 		}
-		model := SchemaModel{
-			Name: m[1],
-			File: file,
-			Line: i + 1,
-			ORM:  "prisma",
-		}
+		model := newSchemaModel(m[1], file, i+1, ORMPrisma)
 		// Collect fields until closing brace
 		for j := i + 1; j < len(lines); j++ {
 			fl := lines[j]
@@ -68,39 +72,50 @@ func extractSQLModels(src []byte, file string) []SchemaModel {
 		if m == nil {
 			continue
 		}
-		model := SchemaModel{
-			Name: m[1],
-			File: file,
-			Line: i + 1,
-			ORM:  "sql",
-		}
-		depth := strings.Count(line, "(") - strings.Count(line, ")")
-		for j := i + 1; j < len(lines) && depth > 0; j++ {
-			fl := lines[j]
-			depth += strings.Count(fl, "(") - strings.Count(fl, ")")
-			fm := sqlColumnRe.FindStringSubmatch(fl)
-			if fm == nil {
-				continue
-			}
-			colName := fm[1]
-			colType := fm[2]
-			// Skip SQL keywords that appear in constraint lines
-			upper := strings.ToUpper(colName)
-			if upper == "PRIMARY" || upper == "UNIQUE" || upper == "FOREIGN" ||
-				upper == "INDEX" || upper == "KEY" || upper == "CHECK" ||
-				upper == "CONSTRAINT" {
-				continue
-			}
-			nullable := !sqlNotNullRe.MatchString(fl)
-			model.Fields = append(model.Fields, SchemaField{
-				Name:     colName,
-				Type:     strings.ToLower(colType),
-				Nullable: nullable,
-			})
-		}
+		model := newSchemaModel(m[1], file, i+1, ORMSQL)
+		model.Fields = extractSQLFields(lines, i)
 		models = append(models, model)
 	}
 	return models
+}
+
+func extractSQLFields(lines []string, start int) []SchemaField {
+	var fields []SchemaField
+	depth := strings.Count(lines[start], "(") - strings.Count(lines[start], ")")
+	for j := start + 1; j < len(lines) && depth > 0; j++ {
+		line := lines[j]
+		depth += strings.Count(line, "(") - strings.Count(line, ")")
+		field, ok := parseSQLField(line)
+		if ok {
+			fields = append(fields, field)
+		}
+	}
+	return fields
+}
+
+func parseSQLField(line string) (SchemaField, bool) {
+	match := sqlColumnRe.FindStringSubmatch(line)
+	if match == nil {
+		return SchemaField{}, false
+	}
+	colName := match[1]
+	if isSQLConstraintKeyword(colName) {
+		return SchemaField{}, false
+	}
+	return SchemaField{
+		Name:     colName,
+		Type:     strings.ToLower(match[2]),
+		Nullable: !sqlNotNullRe.MatchString(line),
+	}, true
+}
+
+func isSQLConstraintKeyword(name string) bool {
+	switch strings.ToUpper(name) {
+	case "PRIMARY", "UNIQUE", "FOREIGN", "INDEX", "KEY", "CHECK", "CONSTRAINT":
+		return true
+	default:
+		return false
+	}
 }
 
 // ---- SQLAlchemy ------------------------------------------------------------
@@ -116,7 +131,6 @@ var (
 func extractSQLAlchemyModels(src []byte, file string) []SchemaModel {
 	var models []SchemaModel
 	lines := splitLines(src)
-	inClass := false
 	var current *SchemaModel
 	indent := ""
 
@@ -125,48 +139,57 @@ func extractSQLAlchemyModels(src []byte, file string) []SchemaModel {
 			if current != nil {
 				models = append(models, *current)
 			}
-			model := SchemaModel{
-				Name: m[1],
-				File: file,
-				Line: i + 1,
-				ORM:  "sqlalchemy",
-			}
+			model := newSchemaModel(m[1], file, i+1, ORMSQLAlchemy)
 			current = &model
-			inClass = true
-			indent = leadingSpaces(line) + " " // at least one more space = inside class
+			indent = classBodyIndent(line)
 			continue
 		}
-		if inClass && current != nil {
-			// Detect end of class: a non-empty, non-comment line that does not
-			// start with the class body's indent level signals we have left the class.
-			if len(line) > 0 && !strings.HasPrefix(line, indent) &&
-				!strings.HasPrefix(strings.TrimSpace(line), "#") {
-				models = append(models, *current)
-				current = nil
-				inClass = false
-			} else if fm := saColumnRe.FindStringSubmatch(line); fm != nil {
-				colName := fm[1]
-				colArgs := fm[2]
-				colType := ""
-				if tm := saTypeRe.FindStringSubmatch(colArgs); tm != nil {
-					colType = tm[1]
-				}
-				nullable := true
-				if nm := saNullRe.FindStringSubmatch(colArgs); nm != nil {
-					nullable = strings.EqualFold(nm[1], "True")
-				}
-				current.Fields = append(current.Fields, SchemaField{
-					Name:     colName,
-					Type:     strings.ToLower(colType),
-					Nullable: nullable,
-				})
-			}
+		if current == nil {
+			continue
+		}
+		if endsPythonClass(line, indent) {
+			models = append(models, *current)
+			current = nil
+			continue
+		}
+		if field, ok := parseSQLAlchemyField(line); ok {
+			current.Fields = append(current.Fields, field)
 		}
 	}
 	if current != nil {
 		models = append(models, *current)
 	}
 	return models
+}
+
+func classBodyIndent(line string) string {
+	return leadingSpaces(line) + " "
+}
+
+func endsPythonClass(line, indent string) bool {
+	return len(line) > 0 &&
+		!strings.HasPrefix(line, indent) &&
+		!strings.HasPrefix(strings.TrimSpace(line), "#")
+}
+
+func parseSQLAlchemyField(line string) (SchemaField, bool) {
+	match := saColumnRe.FindStringSubmatch(line)
+	if match == nil {
+		return SchemaField{}, false
+	}
+	colType := ""
+	if tm := saTypeRe.FindStringSubmatch(match[2]); tm != nil {
+		colType = tm[1]
+	}
+	nullable := true
+	if nm := saNullRe.FindStringSubmatch(match[2]); nm != nil {
+		nullable = strings.EqualFold(nm[1], "True")
+	}
+	return SchemaField{
+		Name:     match[1],
+		Type:     strings.ToLower(colType),
+		Nullable: nullable,
+	}, true
 }
 
 // ---- TypeORM ---------------------------------------------------------------
@@ -188,7 +211,7 @@ func extractTypeORMModels(files []FileInfo) []SchemaModel {
 				Name: sym.Name,
 				File: fi.Path,
 				Line: int(sym.Line),
-				ORM:  "typeorm",
+				ORM:  ORMTypeORM,
 			}
 			for _, child := range sym.Children {
 				if hasAnnotation(child.Annotations, "Column") ||
@@ -244,7 +267,7 @@ func extractGORMModels(allPaths []string, files []FileInfo, displayRoot string) 
 				Name: sym.Name,
 				File: fi.Path,
 				Line: int(sym.Line),
-				ORM:  "gorm",
+				ORM:  ORMGORM,
 			}
 			models = append(models, model)
 		}
@@ -287,4 +310,3 @@ func collectSchemaModels(allPaths []string, files []FileInfo, displayRoot string
 
 	return models
 }
-

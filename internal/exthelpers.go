@@ -44,30 +44,68 @@ func absolutePath(display, root string) string {
 // normalizeHTTPPath strips common API prefixes and replaces path parameter
 // patterns ({id}, :id, <id>) with a canonical {param} placeholder.
 func normalizeHTTPPath(raw string) string {
-	// Strip query string
-	if idx := strings.IndexByte(raw, '?'); idx >= 0 {
-		raw = raw[:idx]
-	}
-	// Strip common API version prefixes
-	for _, pfx := range []string{"/api/v1", "/api/v2", "/api/v3", "/api"} {
-		if strings.HasPrefix(raw, pfx+"/") || raw == pfx {
-			raw = raw[len(pfx):]
-			break
-		}
-	}
+	raw = stripQueryString(raw)
+	raw = stripCommonAPIPrefix(raw)
 	if raw == "" {
 		raw = "/"
 	}
-	// Normalise path param styles: :id, {id}, <id> → {param}
-	paramRe := strings.NewReplacer()
-	_ = paramRe
+	return canonicalizePathParams(raw)
+}
+
+func stripQueryString(raw string) string {
+	if idx := strings.IndexByte(raw, '?'); idx >= 0 {
+		return raw[:idx]
+	}
+	return raw
+}
+
+func stripCommonAPIPrefix(raw string) string {
+	for _, pfx := range []string{"/api/v1", "/api/v2", "/api/v3", "/api"} {
+		if strings.HasPrefix(raw, pfx+"/") || raw == pfx {
+			return raw[len(pfx):]
+		}
+	}
+	return raw
+}
+
+func canonicalizePathParams(raw string) string {
 	segments := strings.Split(raw, "/")
 	for i, seg := range segments {
-		if len(seg) > 1 && (seg[0] == ':' || (seg[0] == '{' && seg[len(seg)-1] == '}') || (seg[0] == '<' && seg[len(seg)-1] == '>')) {
+		if isPathParamSegment(seg) {
 			segments[i] = "{param}"
 		}
 	}
 	return strings.Join(segments, "/")
+}
+
+func isPathParamSegment(seg string) bool {
+	return len(seg) > 1 && (seg[0] == ':' ||
+		(seg[0] == '{' && seg[len(seg)-1] == '}') ||
+		(seg[0] == '<' && seg[len(seg)-1] == '>') ||
+		isNumericSegment(seg) ||
+		isUUIDLikeSegment(seg))
+}
+
+func isNumericSegment(seg string) bool {
+	for _, r := range seg {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return seg != ""
+}
+
+func isUUIDLikeSegment(seg string) bool {
+	if len(seg) < 8 || !strings.Contains(seg, "-") {
+		return false
+	}
+	for _, r := range seg {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // splitLines splits src into lines using a buffered scanner.

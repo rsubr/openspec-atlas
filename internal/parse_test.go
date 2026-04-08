@@ -99,7 +99,7 @@ class UserController {
 	if controller.Children[0].Endpoint == nil {
 		t.Fatal("expected method endpoint to be resolved")
 	}
-	if controller.Children[0].Endpoint.Method != "GET" || controller.Children[0].Endpoint.Path != "/api/users/{id}" {
+	if controller.Children[0].Endpoint.Method != HTTPMethodGet || controller.Children[0].Endpoint.Path != "/api/users/{id}" {
 		t.Fatalf("unexpected endpoint: %#v", controller.Children[0].Endpoint)
 	}
 }

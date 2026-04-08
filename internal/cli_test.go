@@ -60,3 +60,18 @@ func Ignored() {}
 		t.Fatalf("top-level symbol = %q, want TopLevel", got)
 	}
 }
+
+func TestRunVersionFlag(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	if err := run([]string{"--version"}, &stdout, &stderr); err != nil {
+		t.Fatalf("run(--version) error = %v", err)
+	}
+	if strings.TrimSpace(stdout.String()) != "openspec-atlas "+Version {
+		t.Fatalf("unexpected version output %q", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr, got %q", stderr.String())
+	}
+}

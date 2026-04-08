@@ -36,7 +36,29 @@ func extractReactComponents(src []byte, file string) []UIComponent {
 		return nil
 	}
 
-	// Extract prop names from Props interface/type in the file
+	props := extractReactProps(src)
+	lineIndex := buildLineIndex(src)
+
+	var components []UIComponent
+	seen := map[string]bool{}
+	for _, m := range matches {
+		name := reactComponentName(src, m)
+		if name == "" || seen[name] || isAllCapsIdentifier(name) {
+			continue
+		}
+		seen[name] = true
+		components = append(components, UIComponent{
+			Name:      name,
+			Framework: UIFrameworkReact,
+			File:      file,
+			Line:      lineForOffset(lineIndex, m[0]),
+			Props:     props,
+		})
+	}
+	return components
+}
+
+func extractReactProps(src []byte) []string {
 	var props []string
 	if pm := reactPropsInterfaceRe.FindSubmatch(src); pm != nil {
 		scanner := bufio.NewScanner(bytes.NewReader(pm[1]))
@@ -46,38 +68,21 @@ func extractReactComponents(src []byte, file string) []UIComponent {
 			}
 		}
 	}
+	return props
+}
 
-	lines := splitLines(src)
-	lineIndex := buildLineIndex(src)
-
-	var components []UIComponent
-	seen := map[string]bool{}
-	for _, m := range matches {
-		name := ""
-		if m[2] >= 0 { // function MyComponent
-			name = string(src[m[2]:m[3]])
-		} else if m[4] >= 0 { // const MyComponent
-			name = string(src[m[4]:m[5]])
-		}
-		if name == "" || seen[name] {
-			continue
-		}
-		// Skip all-caps identifiers like URL, HTML, API (likely constants)
-		if name == strings.ToUpper(name) {
-			continue
-		}
-		seen[name] = true
-		lineNum := lineForOffset(lineIndex, m[0])
-		_ = lines
-		components = append(components, UIComponent{
-			Name:      name,
-			Framework: "react",
-			File:      file,
-			Line:      lineNum,
-			Props:     props,
-		})
+func reactComponentName(src []byte, match []int) string {
+	if match[2] >= 0 {
+		return string(src[match[2]:match[3]])
 	}
-	return components
+	if match[4] >= 0 {
+		return string(src[match[4]:match[5]])
+	}
+	return ""
+}
+
+func isAllCapsIdentifier(name string) bool {
+	return name == strings.ToUpper(name)
 }
 
 // ---- Svelte ----------------------------------------------------------------
@@ -93,7 +98,7 @@ func extractSvelteComponent(src []byte, file string) *UIComponent {
 	}
 	comp := &UIComponent{
 		Name:      name,
-		Framework: "svelte",
+		Framework: UIFrameworkSvelte,
 		File:      file,
 		Line:      1,
 	}
@@ -141,7 +146,7 @@ func extractAngularComponents(files []FileInfo) []UIComponent {
 			}
 			comp := UIComponent{
 				Name:      sym.Name,
-				Framework: "angular",
+				Framework: UIFrameworkAngular,
 				File:      fi.Path,
 				Line:      int(sym.Line),
 			}
@@ -167,37 +172,48 @@ func extractVueComponents(files []FileInfo) []UIComponent {
 		if fi.Language != "vue" {
 			continue
 		}
-		// Each Vue SFC is one component; use the filename as the component name.
-		name := svelteComponentName(strings.TrimSuffix(fi.Path, ".ts") + ".svelte")
-		// Re-derive name from .vue path
-		base := fi.Path
-		if idx := strings.LastIndexAny(base, "/\\"); idx >= 0 {
-			base = base[idx+1:]
-		}
-		if strings.HasSuffix(base, ".vue") {
-			raw := base[:len(base)-4]
-			name = strings.ToUpper(raw[:1]) + raw[1:]
-		}
+		name := vueComponentName(fi.Path)
 		if name == "" {
 			continue
 		}
 		comp := UIComponent{
 			Name:      name,
-			Framework: "vue",
+			Framework: UIFrameworkVue,
 			File:      fi.Path,
 			Line:      1,
 		}
-		// Collect exported props (defineProps or data) from symbols
-		for _, sym := range fi.Symbols {
-			if sym.Name == "props" || sym.Name == "defineProps" {
-				for _, child := range sym.Children {
-					comp.Props = append(comp.Props, child.Name)
-				}
-			}
-		}
+		comp.Props = collectVueProps(fi.Symbols)
 		components = append(components, comp)
 	}
 	return components
+}
+
+func vueComponentName(path string) string {
+	base := path
+	if idx := strings.LastIndexAny(base, "/\\"); idx >= 0 {
+		base = base[idx+1:]
+	}
+	if !strings.HasSuffix(base, ".vue") {
+		return ""
+	}
+	raw := base[:len(base)-4]
+	if raw == "" {
+		return ""
+	}
+	return strings.ToUpper(raw[:1]) + raw[1:]
+}
+
+func collectVueProps(symbols []Symbol) []string {
+	var props []string
+	for _, sym := range symbols {
+		if sym.Name != "props" && sym.Name != "defineProps" {
+			continue
+		}
+		for _, child := range sym.Children {
+			props = append(props, child.Name)
+		}
+	}
+	return props
 }
 
 // ---- Dispatcher ------------------------------------------------------------
@@ -230,4 +246,3 @@ func collectUIComponents(allPaths []string, files []FileInfo, displayRoot string
 	}
 	return components
 }
-

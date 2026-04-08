@@ -32,7 +32,7 @@ var fetchMethodPattern = regexp.MustCompile(`(?i)method:\s*["'` + "`" + `](\w+)[
 
 // httpCallInfo holds a parsed HTTP call site.
 type httpCallInfo struct {
-	method string
+	method HTTPMethod
 	path   string
 	line   int
 }
@@ -79,45 +79,56 @@ func extractHTTPCalls(src []byte) []httpCallInfo {
 		prevLines[0], prevLines[1], prevLines[2] = prevLines[1], prevLines[2], line
 
 		for _, pat := range httpCallPatterns {
-			m := pat.FindStringSubmatch(line)
-			if m == nil {
+			call, ok := parseHTTPCallMatch(pat.FindStringSubmatch(line), prevLines, line, lineNum)
+			if !ok {
 				continue
 			}
-			var method, url string
-			switch len(m) {
-			case 2: // fetch pattern — url is m[1], method unknown yet
-				url = m[1]
-				method = "GET"
-				// look for method: "POST" in the next or same line context (window)
-				window := strings.Join(prevLines[:], " ") + " " + line
-				if mm := fetchMethodPattern.FindStringSubmatch(window); mm != nil {
-					method = strings.ToUpper(mm[1])
-				}
-			case 3: // axios/ky/got/superagent — m[1]=method, m[2]=url
-				method = strings.ToUpper(m[1])
-				url = m[2]
-			}
-
-			if !isInternalURL(url) {
-				continue
-			}
-			url = extractURLPath(url)
-
-			results = append(results, httpCallInfo{
-				method: method,
-				path:   url,
-				line:   lineNum,
-			})
+			results = append(results, call)
 		}
 	}
 	return results
 }
 
+func parseHTTPCallMatch(match []string, prevLines [3]string, line string, lineNum int) (httpCallInfo, bool) {
+	if match == nil {
+		return httpCallInfo{}, false
+	}
+
+	method, url, ok := callMethodAndURL(match, prevLines, line)
+	if !ok || !isInternalURL(url) {
+		return httpCallInfo{}, false
+	}
+	return httpCallInfo{
+		method: method,
+		path:   extractURLPath(url),
+		line:   lineNum,
+	}, true
+}
+
+func callMethodAndURL(match []string, prevLines [3]string, line string) (HTTPMethod, string, bool) {
+	switch len(match) {
+	case 2:
+		return detectFetchMethod(prevLines, line), match[1], true
+	case 3:
+		return HTTPMethod(strings.ToUpper(match[1])), match[2], true
+	default:
+		return "", "", false
+	}
+}
+
+func detectFetchMethod(prevLines [3]string, line string) HTTPMethod {
+	window := strings.Join(prevLines[:], " ") + " " + line
+	if match := fetchMethodPattern.FindStringSubmatch(window); match != nil {
+		return HTTPMethod(strings.ToUpper(match[1]))
+	}
+	return HTTPMethodGet
+}
+
 // backendRoute is an endpoint extracted from already-parsed symbol annotations.
 type backendRoute struct {
-	method  string
-	path    string
-	file    string
+	method   HTTPMethod
+	path     string
+	file     string
 	normPath string
 }
 
@@ -146,24 +157,24 @@ func buildBackendRouteIndex(files []FileInfo) []backendRoute {
 }
 
 // matchRoute attempts to find a backend route for a call, returning confidence.
-func matchRoute(call httpCallInfo, routes []backendRoute) (file, confidence string) {
+func matchRoute(call httpCallInfo, routes []backendRoute) (file string, confidence HTTPMatchConfidence) {
 	norm := normalizeHTTPPath(call.path)
 
 	for _, r := range routes {
-		if strings.EqualFold(r.method, call.method) && r.normPath == norm {
-			return r.file, "exact"
+		if strings.EqualFold(string(r.method), string(call.method)) && r.normPath == norm {
+			return r.file, HTTPMatchExact
 		}
 	}
 	// Path match regardless of method
 	for _, r := range routes {
 		if r.normPath == norm {
-			return r.file, "path"
+			return r.file, HTTPMatchPath
 		}
 	}
 	// Fuzzy: check if either normalized path is a suffix/prefix of the other
 	for _, r := range routes {
 		if strings.HasSuffix(r.normPath, norm) || strings.HasSuffix(norm, r.normPath) {
-			return r.file, "fuzzy"
+			return r.file, HTTPMatchFuzzy
 		}
 	}
 	return "", ""
@@ -203,4 +214,3 @@ func collectHTTPEdges(allPaths []string, files []FileInfo, displayRoot string) [
 	}
 	return edges
 }
-
