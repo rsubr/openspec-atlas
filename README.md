@@ -38,6 +38,16 @@ For each source file:
 - **Namespace** — package, module, or namespace declaration
 - **Types** — classes, structs, interfaces, enums, traits, objects
 - **Symbols** — functions and methods, nested under their parent type
+- **Annotations** — decorators and attributes (`@GetMapping`, `@Injectable`, `[Authorize]`, etc.)
+- **Endpoints** — fully-resolved HTTP routes for Spring Boot (Java/Kotlin) and ASP.NET (C#)
+
+Across the whole project (not per-file):
+
+- **Environment variables** — all `process.env.X`, `os.Getenv()`, `os.environ[]`, `ENV[]` references; `.env` file definitions; tracks which files use each var and whether a default is provided
+- **HTTP edges** — outgoing `fetch()` / `axios` / `ky` / `got` calls in JS/TS matched against backend route handlers (confidence: exact / path / fuzzy)
+- **Database schema models** — tables and fields from Prisma `model` blocks, SQL `CREATE TABLE`, SQLAlchemy `Base` subclasses, TypeORM `@Entity` classes, and GORM-tagged Go structs
+- **Middleware** — Express `app.use()` registrations (helmet, cors, jwt, passport, morgan, rateLimit…), NestJS `@UseGuards` / `@UseInterceptors` / `@UsePipes`, FastAPI `Depends()`; categorised by type
+- **UI components** — React PascalCase components (`.tsx`/`.jsx`) with props, Svelte `.svelte` files with `export let` props, Angular `@Component` classes with `@Input` props, Vue SFCs
 
 ---
 
@@ -62,48 +72,99 @@ For each source file:
 | PHP | `.php` |
 | Lua | `.lua` |
 | Bash | `.sh` `.bash` |
+| Vue SFC | `.vue` |
 
 ---
 
 ## Output Format
 
+The top-level JSON object has the following sections (sections with no results are omitted):
+
 ```json
 {
-  "files": [
-    {
-      "path": "src/auth/service.go",
-      "language": "go",
-      "namespace": "auth",
-      "symbols": [
-        {
-          "name": "AuthService",
-          "kind": "struct",
-          "line": 12
-        },
-        {
-          "name": "Login",
-          "kind": "function",
-          "line": 28
-        }
-      ]
-    }
+  "files": [...],
+  "env_vars": [...],
+  "http_edges": [...],
+  "schema_models": [...],
+  "middleware": [...],
+  "ui_components": [...]
+}
+```
+
+### files
+
+```json
+{
+  "path": "src/auth/service.go",
+  "language": "go",
+  "namespace": "auth",
+  "symbols": [
+    { "name": "AuthService", "kind": "struct", "line": 12 },
+    { "name": "Login",       "kind": "function", "line": 28 }
   ]
 }
 ```
 
-Types that contain methods have a `children` array:
+Types that contain methods have a `children` array. Symbols with framework annotations carry an `annotations` array, and HTTP handlers carry an `endpoint` object:
 
 ```json
 {
   "name": "UserController",
   "kind": "class",
   "line": 10,
+  "annotations": [{ "name": "RestController" }],
   "children": [
-    { "name": "getUser",   "kind": "method", "line": 18 },
-    { "name": "createUser","kind": "method", "line": 34 }
+    {
+      "name": "getUser",
+      "kind": "method",
+      "line": 18,
+      "annotations": [{ "name": "GetMapping", "value": "/{id}" }],
+      "endpoint": { "method": "GET", "path": "/users/{id}" }
+    }
   ]
 }
 ```
+
+### env_vars
+
+```json
+{ "name": "DATABASE_URL", "files": ["src/db/connect.ts"], "has_default": false, "required": true }
+```
+
+### http_edges
+
+```json
+{ "caller_file": "src/client/api.ts", "caller_line": 42, "method": "POST", "path": "/users", "confidence": "exact", "handler_file": "src/users/controller.ts" }
+```
+
+### schema_models
+
+```json
+{ "name": "User", "file": "prisma/schema.prisma", "line": 5, "orm": "prisma",
+  "fields": [
+    { "name": "id",    "type": "Int",    "nullable": false },
+    { "name": "email", "type": "String", "nullable": false }
+  ]
+}
+```
+
+`orm` is one of: `prisma`, `sql`, `sqlalchemy`, `typeorm`, `gorm`.
+
+### middleware
+
+```json
+{ "name": "helmet", "type": "auth", "framework": "express", "file": "src/server.ts", "line": 8 }
+```
+
+`type` is one of: `auth`, `cors`, `rate-limit`, `validation`, `logging`, `error-handler`, `custom`.
+
+### ui_components
+
+```json
+{ "name": "UserCard", "framework": "react", "file": "src/components/UserCard.tsx", "line": 12, "props": ["userId", "onSelect"] }
+```
+
+`framework` is one of: `react`, `vue`, `svelte`, `angular`.
 
 ---
 
@@ -111,7 +172,7 @@ Types that contain methods have a `children` array:
 
 ```bash
 # Scan current directory → structure.json
-openspec-atlas
+openspec-atlas .
 
 # Scan one or more directories
 openspec-atlas /path/to/repo
@@ -130,6 +191,57 @@ openspec-atlas -all /path/to/repo
 |---|---|---|
 | `-o` | `structure.json` | Output file path |
 | `-all` | off | Bypass `.gitignore` and process all files |
+
+---
+
+## Drift Detection
+
+`openspec-atlas drift` compares a saved baseline atlas against a fresh scan and reports what changed — useful for tracking spec drift in CI or during code review.
+
+```bash
+# 1. Save a baseline at a known-good point (e.g. on main before a PR)
+openspec-atlas -o baseline.json .
+
+# 2. After making changes, check what drifted
+openspec-atlas drift --baseline baseline.json .
+
+# Compare two pre-saved JSON files without re-scanning
+openspec-atlas drift --baseline baseline.json --current current.json
+
+# Machine-readable output for CI
+openspec-atlas drift --baseline baseline.json --json .
+
+# Fail with exit code 1 if any symbols were removed
+openspec-atlas drift --baseline baseline.json --fail-on removed .
+```
+
+Example output:
+
+```
+[endpoint]
+  - removed  DELETE /users/{id}  (src/users/handler.go)
+
+[env_var]
+  + added    JWT_SECRET
+
+[symbol]
+  ~ changed  UserService  — kind changed: struct → interface  (src/users/service.go)
+  + added    AuditLogger  — struct  (src/audit/logger.go)
+
+summary: +2 added  -1 removed  ~1 changed  (4 total)
+```
+
+Drift is detected across all output sections: symbols, endpoints, env vars, schema models, middleware, and UI components.
+
+### Drift Flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--baseline` | — | Path to baseline `structure.json` (required) |
+| `--current` | — | Path to current `structure.json`; re-scans dirs if absent |
+| `--json` | off | Emit machine-readable JSON report |
+| `--fail-on` | `removed` | Exit 1 if any issue of this kind exists (`added`, `removed`, `changed`, `none`) |
+| `--all` | off | Bypass `.gitignore` when re-scanning |
 
 ---
 
@@ -269,6 +381,7 @@ Run openspec-atlas on this repo and generate OpenSpec documentation.
 ## Roadmap
 
 - Incremental updates (diff-based rescanning)
-- Spring Boot annotation detection and layer classification
-- API endpoint extraction
+- Call graph with fanIn/fanOut metrics
+- Duplicate code detection
+- Refactor priority scoring
 - Integration with OpenSpec MCP tooling
