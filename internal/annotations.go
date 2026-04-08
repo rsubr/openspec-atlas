@@ -37,35 +37,44 @@ func extractAnnotationsFromDecl(declNode *sitter.Node, src []byte, config *Langu
 
 	for _, target := range targets {
 		for _, q := range config.compiledAnnQueries {
-			cur := sitter.NewQueryCursor()
-			cur.Exec(q, target)
-			for {
-				m, ok := cur.NextMatch()
-				if !ok {
-					break
-				}
-				var name, value string
-				for _, c := range m.Captures {
-					switch q.CaptureNameForId(c.Index) {
-					case "name":
-						name = c.Node.Content(src)
-					case "value":
-						value = strings.Trim(c.Node.Content(src), `"'`)
-					}
-				}
-				if name == "" {
-					continue
-				}
-				key := name + ":" + value
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
-				annotations = append(annotations, Annotation{Name: name, Value: value})
-			}
+			annotations = runAnnotationQuery(q, target, src, seen, annotations)
 		}
 	}
 
+	return annotations
+}
+
+// runAnnotationQuery executes one annotation query against a target node and
+// appends any newly-seen annotations to the accumulator. The query cursor is
+// scoped to this function so it is always released when the call returns.
+func runAnnotationQuery(q *sitter.Query, target *sitter.Node, src []byte, seen map[string]bool, annotations []Annotation) []Annotation {
+	cur := sitter.NewQueryCursor()
+	defer cur.Close()
+	cur.Exec(q, target)
+	for {
+		m, ok := cur.NextMatch()
+		if !ok {
+			break
+		}
+		var name, value string
+		for _, c := range m.Captures {
+			switch q.CaptureNameForId(c.Index) {
+			case "name":
+				name = c.Node.Content(src)
+			case "value":
+				value = strings.Trim(c.Node.Content(src), `"'`)
+			}
+		}
+		if name == "" {
+			continue
+		}
+		key := name + ":" + value
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		annotations = append(annotations, Annotation{Name: name, Value: value})
+	}
 	return annotations
 }
 

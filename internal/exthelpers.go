@@ -1,22 +1,33 @@
 package internal
 
 import (
-	"bufio"
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// readFileSafe reads a file and returns its content, or nil on error.
-// Files larger than 2MB are skipped to avoid excessive memory use.
+// maxSafeReadSize caps how large a file we will load into memory for the
+// regex-based analysers. Files bigger than this are skipped rather than
+// allocating hundreds of megabytes for a single source file.
+const maxSafeReadSize = 2 * 1024 * 1024
+
+// errFileSkipped is returned by readFileSafe for files that are too large to
+// load. Using a sentinel keeps callers from having to distinguish between the
+// (nil, nil) "skipped" case and a real error.
+var errFileSkipped = errors.New("file skipped")
+
+// readFileSafe reads a file and returns its content. Files larger than
+// maxSafeReadSize are skipped with errFileSkipped so callers can branch on
+// errors.Is instead of checking for a nil slice.
 func readFileSafe(path string) ([]byte, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
-	if info.Size() > 2*1024*1024 {
-		return nil, nil
+	if info.Size() > maxSafeReadSize {
+		return nil, errFileSkipped
 	}
 	return os.ReadFile(path)
 }
@@ -34,11 +45,16 @@ func relativePath(path, root string) string {
 }
 
 // absolutePath reconstructs an absolute path from a display path + root.
+// When display is already absolute it is returned unchanged; otherwise it is
+// joined with root using the platform's native separator.
 func absolutePath(display, root string) string {
-	if strings.HasPrefix(display, "/") {
+	if filepath.IsAbs(display) {
 		return display
 	}
-	return root + "/" + display
+	if root == "" {
+		return display
+	}
+	return filepath.Join(root, display)
 }
 
 // normalizeHTTPPath strips common API prefixes and replaces path parameter
@@ -119,12 +135,34 @@ func isUUIDLikeSegment(seg string) bool {
 	return true
 }
 
-// splitLines splits src into lines using a buffered scanner.
+// splitLines splits src into lines without the 64KB limit imposed by the
+// default bufio.Scanner buffer. Large SQL dumps and minified JS routinely
+// contain lines bigger than that, so we slice the source directly instead of
+// running it through a scanner.
 func splitLines(src []byte) []string {
-	var lines []string
-	scanner := bufio.NewScanner(bytes.NewReader(src))
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
+	if len(src) == 0 {
+		return nil
+	}
+	n := bytes.Count(src, []byte{'\n'})
+	lines := make([]string, 0, n+1)
+	start := 0
+	for i := 0; i < len(src); i++ {
+		if src[i] != '\n' {
+			continue
+		}
+		end := i
+		if end > start && src[end-1] == '\r' {
+			end--
+		}
+		lines = append(lines, string(src[start:end]))
+		start = i + 1
+	}
+	if start < len(src) {
+		end := len(src)
+		if end > start && src[end-1] == '\r' {
+			end--
+		}
+		lines = append(lines, string(src[start:end]))
 	}
 	return lines
 }

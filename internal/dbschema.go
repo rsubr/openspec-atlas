@@ -252,48 +252,74 @@ func extractTypeORMModels(files []FileInfo) []SchemaModel {
 
 // ---- GORM ------------------------------------------------------------------
 
-// gormStructRe matches a Go struct whose fields have `gorm:"..."` tags.
-// We detect the struct via the already-parsed symbols: any struct that has
-// at least one field tag containing "gorm" in the raw source.
-var gormTagRe = regexp.MustCompile("(?m)`[^`]*gorm:\"[^`]*`")
+// gormTagRe matches a struct tag containing a gorm:"…" entry.
+var gormTagRe = regexp.MustCompile("`[^`]*gorm:\"[^`]*`")
 
-// extractGORMModels identifies Go files that contain gorm tags and then treats
-// every parsed struct in those files as a GORM model candidate.
+// gormStructBlockRe locates a `type Name struct { … }` block so we can scope
+// the gorm-tag search to an individual struct instead of an entire file.
+// The first capture group holds the struct name; the second holds the body.
+var gormStructBlockRe = regexp.MustCompile(`(?s)type\s+(\w+)\s+struct\s*\{([^}]*)\}`)
+
+// extractGORMModels scans .go files and emits one SchemaModel per struct that
+// actually carries gorm tags. This replaces the earlier heuristic that treated
+// every struct in a file with any gorm tag as a GORM model.
 func extractGORMModels(allPaths []string, files []FileInfo, displayRoot string) []SchemaModel {
-	// Build a set of .go files that contain gorm tags
-	gormFiles := map[string]bool{}
+	// Build a set of struct names per file that carry gorm tags.
+	gormStructs := map[string]map[string]bool{} // absolute path → struct name → true
 	for _, path := range allPaths {
 		if !strings.HasSuffix(path, ".go") {
 			continue
 		}
 		src, err := readFileSafe(path)
-		if err != nil || src == nil {
+		if err != nil {
 			continue
 		}
-		if gormTagRe.Match(src) {
-			gormFiles[path] = true
+		if !gormTagRe.Match(src) {
+			continue
+		}
+		structs := map[string]bool{}
+		for _, m := range gormStructBlockRe.FindAllSubmatch(src, -1) {
+			if gormTagRe.Match(m[2]) {
+				structs[string(m[1])] = true
+			}
+		}
+		if len(structs) > 0 {
+			gormStructs[path] = structs
 		}
 	}
-	if len(gormFiles) == 0 {
+	if len(gormStructs) == 0 {
+		return nil
+	}
+
+	// A FileInfo.Path is stored as a display path (relative to displayRoot).
+	// We compare against both forms so the lookup works regardless of whether
+	// the scanner was run with a single or multiple projects.
+	lookup := func(fi FileInfo) map[string]bool {
+		if s, ok := gormStructs[fi.Path]; ok {
+			return s
+		}
+		if s, ok := gormStructs[absolutePath(fi.Path, displayRoot)]; ok {
+			return s
+		}
 		return nil
 	}
 
 	var models []SchemaModel
 	for _, fi := range files {
-		if !gormFiles[fi.Path] && !gormFiles[absolutePath(fi.Path, displayRoot)] {
+		structs := lookup(fi)
+		if structs == nil {
 			continue
 		}
 		for _, sym := range fi.Symbols {
-			if sym.Kind != "struct" {
+			if sym.Kind != "struct" || !structs[sym.Name] {
 				continue
 			}
-			model := SchemaModel{
+			models = append(models, SchemaModel{
 				Name: sym.Name,
 				File: fi.Path,
 				Line: int(sym.Line),
 				ORM:  ORMGORM,
-			}
-			models = append(models, model)
+			})
 		}
 	}
 	return models
@@ -316,7 +342,7 @@ func collectSchemaModels(allPaths []string, files []FileInfo, displayRoot string
 		var newModels []SchemaModel
 
 		src, err := readFileSafe(path)
-		if err != nil || src == nil {
+		if err != nil {
 			continue
 		}
 		displayPath := relativePath(path, displayRoot)

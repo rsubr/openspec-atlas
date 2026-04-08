@@ -1,8 +1,6 @@
 package internal
 
 import (
-	"bufio"
-	"bytes"
 	"regexp"
 	"strings"
 )
@@ -45,21 +43,27 @@ var expressRules = []middlewareRule{
 // that are already captured as symbol annotations.
 // We process them from FileInfo directly (see collectMiddlewareFromSymbols).
 
-// fastapiRules detects FastAPI Depends() usage.
+// fastapiRules detects FastAPI Depends() usage. One rule is enough because
+// the regex permits an optional dotted attribute segment, which also matches
+// bare identifiers.
 var fastapiRules = []middlewareRule{
-	{regexp.MustCompile(`Depends\(\s*(\w+)\s*\)`), "", MiddlewareCustom, "fastapi"},
 	{regexp.MustCompile(`Depends\(\s*(\w+(?:\.\w+)?)\s*\)`), "", MiddlewareCustom, "fastapi"},
 }
 
-// nestjsAnnotationMiddleware maps NestJS decorator names to middleware types.
-var nestjsAnnotationMiddleware = map[string]struct {
-	mwType MiddlewareType
-	name   string
-}{
-	"UseGuards":       {MiddlewareAuth, "UseGuards"},
-	"UseInterceptors": {MiddlewareCustom, "UseInterceptors"},
-	"UsePipes":        {MiddlewareValidation, "UsePipes"},
-	"UseFilters":      {MiddlewareErrorHandler, "UseFilters"},
+// nestjsMiddlewareDecorator pairs a decorator name with its classification.
+// The slice is iterated in declaration order so the emitted MiddlewareItem
+// list is deterministic across runs (a map would randomise ordering).
+type nestjsMiddlewareDecorator struct {
+	annName string
+	mwType  MiddlewareType
+	name    string
+}
+
+var nestjsMiddlewareDecorators = []nestjsMiddlewareDecorator{
+	{"UseGuards", MiddlewareAuth, "UseGuards"},
+	{"UseInterceptors", MiddlewareCustom, "UseInterceptors"},
+	{"UsePipes", MiddlewareValidation, "UsePipes"},
+	{"UseFilters", MiddlewareErrorHandler, "UseFilters"},
 }
 
 // collectMiddlewareFromSymbols extracts NestJS middleware from already-parsed
@@ -69,19 +73,19 @@ func collectMiddlewareFromSymbols(files []FileInfo) []MiddlewareItem {
 	var walk func(syms []Symbol, file string)
 	walk = func(syms []Symbol, file string) {
 		for _, sym := range syms {
-			for annName, meta := range nestjsAnnotationMiddleware {
-				if val := annotationValue(sym.Annotations, annName); val != "" {
+			for _, dec := range nestjsMiddlewareDecorators {
+				if val := annotationValue(sym.Annotations, dec.annName); val != "" {
 					items = append(items, MiddlewareItem{
 						Name:      val,
-						Type:      meta.mwType,
+						Type:      dec.mwType,
 						Framework: "nestjs",
 						File:      file,
 						Line:      int(sym.Line),
 					})
-				} else if hasAnnotation(sym.Annotations, annName) {
+				} else if hasAnnotation(sym.Annotations, dec.annName) {
 					items = append(items, MiddlewareItem{
-						Name:      meta.name,
-						Type:      meta.mwType,
+						Name:      dec.name,
+						Type:      dec.mwType,
 						Framework: "nestjs",
 						File:      file,
 						Line:      int(sym.Line),
@@ -139,16 +143,13 @@ func collectMiddlewareFromSource(allPaths []string, displayRoot string) []Middle
 		}
 
 		src, err := readFileSafe(path)
-		if err != nil || src == nil {
+		if err != nil {
 			continue
 		}
 
 		displayPath := relativePath(path, displayRoot)
-		scanner := bufio.NewScanner(bytes.NewReader(src))
-		lineNum := 0
-		for scanner.Scan() {
-			lineNum++
-			scanMiddlewareLine(scanner.Text(), lineNum, rules, displayPath, &items)
+		for lineNum, line := range splitLines(src) {
+			scanMiddlewareLine(line, lineNum+1, rules, displayPath, &items)
 		}
 	}
 	return items

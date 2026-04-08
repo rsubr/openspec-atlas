@@ -241,12 +241,16 @@ func collectUIComponents(allPaths []string, files []FileInfo, displayRoot string
 	components = append(components, extractAngularComponents(files)...)
 	components = append(components, extractVueComponents(files)...)
 
-	// React and Svelte: regex scan over raw source
+	// React and Svelte: regex scan over raw source. Filter extensions first
+	// so we do not stat or read files we will not use.
 	for _, path := range allPaths {
 		ext := strings.ToLower(fileExt(path))
+		if ext != ".tsx" && ext != ".jsx" && ext != ".svelte" {
+			continue
+		}
 
 		src, err := readFileSafe(path)
-		if err != nil || src == nil {
+		if err != nil {
 			continue
 		}
 		displayPath := relativePath(path, displayRoot)

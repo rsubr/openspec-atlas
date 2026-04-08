@@ -136,13 +136,20 @@ func collectEnvVars(allPaths []string, displayRoot string) []EnvVar {
 		base := filepath.Base(path)
 		ext := strings.ToLower(filepath.Ext(path))
 
+		isDotEnv := envFileNameRe.MatchString(base)
+		if !isDotEnv && !envVarExtensions[ext] {
+			// Skip files we would never extract anything from so large
+			// binaries and docs are never loaded into memory here.
+			continue
+		}
+
 		src, err := readFileSafe(path)
 		if err != nil {
 			continue
 		}
 
 		// Handle .env* files
-		if envFileNameRe.MatchString(base) {
+		if isDotEnv {
 			for _, name := range parseDotEnv(src) {
 				ev := ensure(name)
 				ev.HasDefault = true // defined in .env = has a value

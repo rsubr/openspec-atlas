@@ -163,6 +163,10 @@ func buildBackendRouteIndex(files []FileInfo) []backendRoute {
 	return routes
 }
 
+// minFuzzyPathLen guards the fuzzy match so that trivially-short paths like
+// "/" or "/{param}" do not suffix-match every backend route.
+const minFuzzyPathLen = 4
+
 // matchRoute attempts to find a backend route for a call, returning confidence.
 func matchRoute(call httpCallInfo, routes []backendRoute) (file string, confidence HTTPMatchConfidence) {
 	norm := normalizeHTTPPath(call.path)
@@ -178,8 +182,14 @@ func matchRoute(call httpCallInfo, routes []backendRoute) (file string, confiden
 			return r.file, HTTPMatchPath
 		}
 	}
-	// Fuzzy: check if either normalized path is a suffix/prefix of the other
+	// Fuzzy: only attempt when both paths are long enough to carry signal.
+	if len(norm) < minFuzzyPathLen {
+		return "", ""
+	}
 	for _, r := range routes {
+		if len(r.normPath) < minFuzzyPathLen {
+			continue
+		}
 		if strings.HasSuffix(r.normPath, norm) || strings.HasSuffix(norm, r.normPath) {
 			return r.file, HTTPMatchFuzzy
 		}
@@ -200,7 +210,7 @@ func collectHTTPEdges(allPaths []string, files []FileInfo, displayRoot string) [
 			continue
 		}
 		src, err := readFileSafe(path)
-		if err != nil || src == nil {
+		if err != nil {
 			continue
 		}
 

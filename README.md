@@ -272,7 +272,7 @@ sudo chmod +x /usr/local/bin/openspec-atlas
 
 ## Building from Source
 
-Requires Go 1.21+ and `aarch64-linux-gnu-gcc` for the ARM64 cross-build.
+Requires Go 1.22+ and `aarch64-linux-gnu-gcc` for the ARM64 cross-build.
 
 ```bash
 ./build.sh
@@ -301,7 +301,7 @@ Hierarchy is resolved by comparing byte ranges from `@decl` captures — no lang
 
 ## Internal Structure
 
-All logic lives in the `internals/` package. Key files:
+All logic lives in the `internal/` package. Key files:
 
 | File | Responsibility |
 |---|---|

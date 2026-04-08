@@ -76,19 +76,28 @@ type symEntry struct {
 }
 
 // flattenSymbols recursively walks all symbols in all files, returning a map
-// of "file::name" → symEntry for efficient lookup.
+// of "file::parentPath::name" → symEntry for efficient lookup. The parent path
+// is part of the key so that same-named symbols under different containers
+// (e.g. overloads, repeated helper names inside nested classes) are compared
+// independently instead of overwriting each other.
 func flattenSymbols(files []FileInfo) map[string]symEntry {
 	m := map[string]symEntry{}
-	var walk func(syms []Symbol, file string)
-	walk = func(syms []Symbol, file string) {
+	var walk func(syms []Symbol, file, parentPath string)
+	walk = func(syms []Symbol, file, parentPath string) {
 		for _, s := range syms {
-			key := file + "::" + s.Name
+			key := file + "::" + parentPath + "::" + s.Name
 			m[key] = symEntry{sym: s, file: file}
-			walk(s.Children, file)
+			childParent := parentPath
+			if childParent == "" {
+				childParent = s.Name
+			} else {
+				childParent = childParent + "." + s.Name
+			}
+			walk(s.Children, file, childParent)
 		}
 	}
 	for _, fi := range files {
-		walk(fi.Symbols, fi.Path)
+		walk(fi.Symbols, fi.Path, "")
 	}
 	return m
 }
@@ -230,9 +239,11 @@ func diffEnvVars(baseline, current []EnvVar) []DriftIssue {
 			if c.HasDefault == b.HasDefault && c.Required == b.Required {
 				return DriftIssue{}, false
 			}
-			detail := fmt.Sprintf("has_default: %v → %v", b.HasDefault, c.HasDefault)
-			if c.Required != b.Required {
-				detail = fmt.Sprintf("required: %v → %v", b.Required, c.Required)
+			// Prefer reporting "required" because that is the user-facing
+			// invariant; fall back to "has_default" when only that changed.
+			detail := fmt.Sprintf("required: %v → %v", b.Required, c.Required)
+			if c.Required == b.Required {
+				detail = fmt.Sprintf("has_default: %v → %v", b.HasDefault, c.HasDefault)
 			}
 			return DriftIssue{Kind: DriftChanged, Category: "env_var", Name: b.Name, Detail: detail}, true
 		},

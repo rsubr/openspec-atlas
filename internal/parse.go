@@ -9,7 +9,9 @@ import (
 
 // parseFile loads a source file, applies any language-specific source rewrite,
 // parses it with tree-sitter, and returns the namespace plus the extracted
-// symbol hierarchy for that file.
+// symbol hierarchy for that file. The parser, tree, and any query cursors
+// created by helpers are released before returning so the process does not
+// accumulate C allocations across thousands of files.
 func parseFile(path string, config *LanguageConfig) (FileInfo, error) {
 	config.ensureCompiled()
 
@@ -23,11 +25,13 @@ func parseFile(path string, config *LanguageConfig) (FileInfo, error) {
 	}
 
 	parser := sitter.NewParser()
+	defer parser.Close()
 	parser.SetLanguage(config.Grammar)
 	tree, err := parser.ParseCtx(context.Background(), nil, src)
 	if err != nil {
 		return FileInfo{}, err
 	}
+	defer tree.Close()
 	root := tree.RootNode()
 
 	fi := FileInfo{Language: config.Name}
@@ -47,6 +51,7 @@ func extractNamespace(root *sitter.Node, src []byte, config *LanguageConfig) str
 	}
 
 	cur := sitter.NewQueryCursor()
+	defer cur.Close()
 	cur.Exec(config.compiledNamespaceQuery, root)
 	if m, ok := cur.NextMatch(); ok {
 		for _, c := range m.Captures {
@@ -64,47 +69,58 @@ func extractSymbols(root *sitter.Node, src []byte, config *LanguageConfig) []Sym
 	var raws []rawSym
 
 	for _, sq := range config.compiledSymbolQueries {
-		cur := sitter.NewQueryCursor()
-		cur.Exec(sq.Query, root)
-
-		for {
-			m, ok := cur.NextMatch()
-			if !ok {
-				break
-			}
-
-			var nameNode, declNode *sitter.Node
-			for _, c := range m.Captures {
-				switch sq.Query.CaptureNameForId(c.Index) {
-				case "name":
-					nameNode = c.Node
-				case "decl":
-					declNode = c.Node
-				}
-			}
-			if nameNode == nil {
-				continue
-			}
-
-			rangeNode := declarationRangeNode(nameNode, declNode)
-			var annotations []Annotation
-			if declNode != nil {
-				annotations = extractAnnotationsFromDecl(declNode, src, config)
-			}
-
-			raws = append(raws, rawSym{
-				name:        nameNode.Content(src),
-				kind:        sq.Kind,
-				line:        nameNode.StartPoint().Row + 1,
-				startByte:   rangeNode.StartByte(),
-				endByte:     rangeNode.EndByte(),
-				isContainer: sq.IsContainer,
-				annotations: annotations,
-			})
-		}
+		raws = append(raws, runSymbolQuery(root, src, sq, config)...)
 	}
 
 	return buildHierarchy(raws)
+}
+
+// runSymbolQuery executes a single compiled symbol query and is factored out
+// of extractSymbols so the query cursor's lifetime is tied to a dedicated
+// function scope, guaranteeing release of the underlying C memory even when
+// an early return is added later.
+func runSymbolQuery(root *sitter.Node, src []byte, sq compiledSymbolQuery, config *LanguageConfig) []rawSym {
+	cur := sitter.NewQueryCursor()
+	defer cur.Close()
+	cur.Exec(sq.Query, root)
+
+	var raws []rawSym
+	for {
+		m, ok := cur.NextMatch()
+		if !ok {
+			break
+		}
+
+		var nameNode, declNode *sitter.Node
+		for _, c := range m.Captures {
+			switch sq.Query.CaptureNameForId(c.Index) {
+			case "name":
+				nameNode = c.Node
+			case "decl":
+				declNode = c.Node
+			}
+		}
+		if nameNode == nil {
+			continue
+		}
+
+		rangeNode := declarationRangeNode(nameNode, declNode)
+		var annotations []Annotation
+		if declNode != nil {
+			annotations = extractAnnotationsFromDecl(declNode, src, config)
+		}
+
+		raws = append(raws, rawSym{
+			name:        nameNode.Content(src),
+			kind:        sq.Kind,
+			line:        nameNode.StartPoint().Row + 1,
+			startByte:   rangeNode.StartByte(),
+			endByte:     rangeNode.EndByte(),
+			isContainer: sq.IsContainer,
+			annotations: annotations,
+		})
+	}
+	return raws
 }
 
 // declarationRangeNode chooses the node whose byte range should represent the
