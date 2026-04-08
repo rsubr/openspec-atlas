@@ -4,6 +4,8 @@ import (
 	"testing"
 )
 
+// TestParseDriftKind validates the accepted --fail-on values for the drift
+// command and rejects unknown ones.
 func TestParseDriftKind(t *testing.T) {
 	t.Parallel()
 
@@ -50,6 +52,8 @@ func findIssues(issues []DriftIssue, kind DriftKind, category string) []DriftIss
 	return out
 }
 
+// issueNames projects a slice of issues into just their names for concise
+// assertions.
 func issueNames(issues []DriftIssue) []string {
 	names := make([]string, len(issues))
 	for i, iss := range issues {
@@ -95,6 +99,8 @@ func TestDiffSymbols(t *testing.T) {
 	}
 }
 
+// TestDiffSymbols_NoChange checks that identical symbol inventories produce no
+// drift issues.
 func TestDiffSymbols_NoChange(t *testing.T) {
 	files := []FileInfo{
 		{Path: "main.go", Symbols: []Symbol{{Name: "main", Kind: "function"}}},
@@ -105,6 +111,8 @@ func TestDiffSymbols_NoChange(t *testing.T) {
 	}
 }
 
+// TestDiffSymbols_Nested verifies that nested methods are diffed the same way
+// as top-level symbols.
 func TestDiffSymbols_Nested(t *testing.T) {
 	base := []FileInfo{{
 		Path: "svc.go",
@@ -273,6 +281,8 @@ func TestDiffMiddleware(t *testing.T) {
 // buildDriftReport
 // --------------------------------------------------------------------------
 
+// TestBuildDriftReport_Empty ensures identical empty outputs produce a clean
+// report with zero issues.
 func TestBuildDriftReport_Empty(t *testing.T) {
 	out := Output{}
 	report := buildDriftReport(out, out, "baseline.json", "")
@@ -281,6 +291,8 @@ func TestBuildDriftReport_Empty(t *testing.T) {
 	}
 }
 
+// TestBuildDriftReport_Summary ensures the summary counters reflect the issue
+// list assembled by the diff functions.
 func TestBuildDriftReport_Summary(t *testing.T) {
 	base := Output{
 		EnvVars: []EnvVar{{Name: "OLD"}},

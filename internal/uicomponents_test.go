@@ -2,6 +2,8 @@ package internal
 
 import "testing"
 
+// TestExtractReactComponents checks the regex-based React component extractor
+// and its shallow prop collection.
 func TestExtractReactComponents(t *testing.T) {
 	t.Parallel()
 
@@ -27,6 +29,8 @@ export function UserCard(props: UserCardProps) {
 	}
 }
 
+// TestExtractVueComponents verifies that parsed Vue symbols are promoted into
+// the unified UI component inventory with prop names.
 func TestExtractVueComponents(t *testing.T) {
 	t.Parallel()
 

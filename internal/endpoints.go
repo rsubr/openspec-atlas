@@ -33,6 +33,8 @@ func resolveSpringEndpoints(symbols []Symbol) []Symbol {
 	return symbols
 }
 
+// annotationValue returns the first string value associated with an annotation
+// name, which is sufficient for the route annotations we currently support.
 func annotationValue(annotations []Annotation, name string) string {
 	for _, a := range annotations {
 		if a.Name == name {
@@ -42,6 +44,8 @@ func annotationValue(annotations []Annotation, name string) string {
 	return ""
 }
 
+// hasAnnotation reports whether the declaration carries the named annotation,
+// regardless of any annotation argument.
 func hasAnnotation(annotations []Annotation, name string) bool {
 	for _, a := range annotations {
 		if a.Name == name {
@@ -51,6 +55,8 @@ func hasAnnotation(annotations []Annotation, name string) bool {
 	return false
 }
 
+// joinPaths combines a class-level route prefix with a method-level route while
+// normalizing the slash between them.
 func joinPaths(base, path string) string {
 	base = strings.TrimRight(base, "/")
 	if path != "" && !strings.HasPrefix(path, "/") {

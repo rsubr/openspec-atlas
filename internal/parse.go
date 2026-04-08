@@ -7,6 +7,9 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
+// parseFile loads a source file, applies any language-specific source rewrite,
+// parses it with tree-sitter, and returns the namespace plus the extracted
+// symbol hierarchy for that file.
 func parseFile(path string, config *LanguageConfig) (FileInfo, error) {
 	config.ensureCompiled()
 
@@ -36,6 +39,8 @@ func parseFile(path string, config *LanguageConfig) (FileInfo, error) {
 	return fi, nil
 }
 
+// extractNamespace runs the language's optional namespace query and returns the
+// first captured package or namespace name.
 func extractNamespace(root *sitter.Node, src []byte, config *LanguageConfig) string {
 	if config.compiledNamespaceQuery == nil {
 		return ""
@@ -53,6 +58,8 @@ func extractNamespace(root *sitter.Node, src []byte, config *LanguageConfig) str
 	return ""
 }
 
+// extractSymbols executes every compiled symbol query, records the byte ranges
+// needed for nesting, and then turns the flat matches into the final hierarchy.
 func extractSymbols(root *sitter.Node, src []byte, config *LanguageConfig) []Symbol {
 	var raws []rawSym
 
@@ -100,6 +107,8 @@ func extractSymbols(root *sitter.Node, src []byte, config *LanguageConfig) []Sym
 	return buildHierarchy(raws)
 }
 
+// declarationRangeNode chooses the node whose byte range should represent the
+// whole declaration when the hierarchy is assembled.
 func declarationRangeNode(nameNode, declNode *sitter.Node) *sitter.Node {
 	if declNode != nil {
 		return declNode

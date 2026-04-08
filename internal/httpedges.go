@@ -89,6 +89,8 @@ func extractHTTPCalls(src []byte) []httpCallInfo {
 	return results
 }
 
+// parseHTTPCallMatch converts one regex match into normalized call metadata and
+// filters out URLs that should not be treated as internal API traffic.
 func parseHTTPCallMatch(match []string, prevLines [3]string, line string, lineNum int) (httpCallInfo, bool) {
 	if match == nil {
 		return httpCallInfo{}, false
@@ -105,6 +107,9 @@ func parseHTTPCallMatch(match []string, prevLines [3]string, line string, lineNu
 	}, true
 }
 
+// callMethodAndURL interprets the capture layout for each supported HTTP client
+// pattern. fetch() infers the method from nearby options, while the other
+// clients encode the method in the call itself.
 func callMethodAndURL(match []string, prevLines [3]string, line string) (HTTPMethod, string, bool) {
 	switch len(match) {
 	case 2:
@@ -116,6 +121,8 @@ func callMethodAndURL(match []string, prevLines [3]string, line string) (HTTPMet
 	}
 }
 
+// detectFetchMethod scans the current line plus a short look-behind window so
+// multiline fetch option objects still produce the intended method.
 func detectFetchMethod(prevLines [3]string, line string) HTTPMethod {
 	window := strings.Join(prevLines[:], " ") + " " + line
 	if match := fetchMethodPattern.FindStringSubmatch(window); match != nil {

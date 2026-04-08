@@ -68,6 +68,8 @@ var (
 	languageByExt map[string]*LanguageConfig
 )
 
+// prepareRegistry builds the case-insensitive extension lookup table after the
+// language registry has been declared in languages.go.
 func prepareRegistry() {
 	languageByExt = make(map[string]*LanguageConfig)
 
@@ -78,11 +80,16 @@ func prepareRegistry() {
 	}
 }
 
+// languageForFile returns the language configuration for a path based on its
+// extension alone.
 func languageForFile(path string) (*LanguageConfig, bool) {
 	config, ok := languageByExt[strings.ToLower(filepath.Ext(path))]
 	return config, ok
 }
 
+// ensureCompiled lazily compiles every tree-sitter query in the config once for
+// the lifetime of the process. Invalid queries are reported without aborting the
+// rest of the scan.
 func (c *LanguageConfig) ensureCompiled() {
 	c.compileOnce.Do(func() {
 		if c.NamespaceQuery != "" {

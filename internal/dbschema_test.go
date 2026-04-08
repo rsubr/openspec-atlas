@@ -2,6 +2,8 @@ package internal
 
 import "testing"
 
+// TestExtractSQLModelsSkipsConstraintLines verifies that SQL column extraction
+// ignores table-level PRIMARY KEY and CONSTRAINT clauses.
 func TestExtractSQLModelsSkipsConstraintLines(t *testing.T) {
 	t.Parallel()
 
@@ -26,6 +28,8 @@ CREATE TABLE users (
 	}
 }
 
+// TestExtractSQLAlchemyModelsStopsOnDedent ensures SQLAlchemy model parsing
+// stops when the parser leaves the class body.
 func TestExtractSQLAlchemyModelsStopsOnDedent(t *testing.T) {
 	t.Parallel()
 

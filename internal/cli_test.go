@@ -8,6 +8,8 @@ import (
 	"testing"
 )
 
+// TestRunRequiresDirectory verifies that the default CLI mode prints usage and
+// returns an error when no scan target is provided.
 func TestRunRequiresDirectory(t *testing.T) {
 	t.Parallel()
 
@@ -21,6 +23,9 @@ func TestRunRequiresDirectory(t *testing.T) {
 	}
 }
 
+// TestRunWritesOutputJSON verifies the end-to-end happy path: ignored files are
+// skipped, the atlas is written, and the generated JSON contains parsed
+// symbols.
 func TestRunWritesOutputJSON(t *testing.T) {
 	t.Parallel()
 
@@ -61,6 +66,8 @@ func Ignored() {}
 	}
 }
 
+// TestRunVersionFlag ensures the version flag bypasses scanning and writes only
+// the build version string.
 func TestRunVersionFlag(t *testing.T) {
 	t.Parallel()
 

@@ -52,6 +52,8 @@ func normalizeHTTPPath(raw string) string {
 	return canonicalizePathParams(raw)
 }
 
+// stripQueryString removes any trailing query string so route matching compares
+// only the path portion.
 func stripQueryString(raw string) string {
 	if idx := strings.IndexByte(raw, '?'); idx >= 0 {
 		return raw[:idx]
@@ -59,6 +61,8 @@ func stripQueryString(raw string) string {
 	return raw
 }
 
+// stripCommonAPIPrefix removes broad API prefixes that commonly differ between
+// frontend client URLs and backend route declarations.
 func stripCommonAPIPrefix(raw string) string {
 	for _, pfx := range []string{"/api/v1", "/api/v2", "/api/v3", "/api"} {
 		if strings.HasPrefix(raw, pfx+"/") || raw == pfx {
@@ -68,6 +72,8 @@ func stripCommonAPIPrefix(raw string) string {
 	return raw
 }
 
+// canonicalizePathParams rewrites dynamic-looking path segments into a single
+// placeholder so equivalent routes normalize to the same shape.
 func canonicalizePathParams(raw string) string {
 	segments := strings.Split(raw, "/")
 	for i, seg := range segments {
@@ -78,6 +84,8 @@ func canonicalizePathParams(raw string) string {
 	return strings.Join(segments, "/")
 }
 
+// isPathParamSegment recognizes route segments that look like variable IDs
+// instead of literal path text.
 func isPathParamSegment(seg string) bool {
 	return len(seg) > 1 && (seg[0] == ':' ||
 		(seg[0] == '{' && seg[len(seg)-1] == '}') ||
@@ -86,6 +94,7 @@ func isPathParamSegment(seg string) bool {
 		isUUIDLikeSegment(seg))
 }
 
+// isNumericSegment reports whether the segment is made entirely of digits.
 func isNumericSegment(seg string) bool {
 	for _, r := range seg {
 		if r < '0' || r > '9' {
@@ -95,6 +104,8 @@ func isNumericSegment(seg string) bool {
 	return seg != ""
 }
 
+// isUUIDLikeSegment treats hyphenated hexadecimal identifiers as path
+// parameters so UUID URLs match named parameter routes.
 func isUUIDLikeSegment(seg string) bool {
 	if len(seg) < 8 || !strings.Contains(seg, "-") {
 		return false

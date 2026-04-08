@@ -6,6 +6,9 @@ import (
 	ignore "github.com/sabhiram/go-gitignore"
 )
 
+// isGitIgnored walks up from the file's directory to the project root,
+// compiling and caching .gitignore files along the way, and returns whether any
+// of them exclude the path.
 func isGitIgnored(path, root string, cache map[string]*ignore.GitIgnore) bool {
 	dir := filepath.Dir(path)
 	for {

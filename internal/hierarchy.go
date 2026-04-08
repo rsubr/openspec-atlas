@@ -2,6 +2,9 @@ package internal
 
 import "sort"
 
+// buildHierarchy turns the flat tree-sitter matches into the symbol tree stored
+// in JSON output. Leaves are attached to the smallest container that encloses
+// them so nested methods end up under the correct type.
 func buildHierarchy(raws []rawSym) []Symbol {
 	var containers, leaves []rawSym
 	for _, r := range raws {
@@ -45,6 +48,8 @@ func buildHierarchy(raws []rawSym) []Symbol {
 	return append(containerSyms, topLevel...)
 }
 
+// smallestContainingContainer returns the narrowest container range that fully
+// contains the leaf declaration, or -1 when the symbol is top-level.
 func smallestContainingContainer(containers []rawSym, leaf rawSym) int {
 	bestIdx := -1
 	bestSize := ^uint32(0)

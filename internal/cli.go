@@ -21,6 +21,8 @@ type runOptions struct {
 	dirs       []string
 }
 
+// RunCLI is the public entrypoint used by main and tests. It converts returned
+// errors into a standard exit code and prints the message once to stderr.
 func RunCLI(args []string, stdout, stderr io.Writer) int {
 	if err := run(args, stdout, stderr); err != nil {
 		fmt.Fprintln(stderr, err)
@@ -29,6 +31,8 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// run handles top-level command dispatch, parses flags for the default scan
+// mode, and either prints the version or writes a freshly generated atlas file.
 func run(args []string, stdout, stderr io.Writer) error {
 	if len(args) > 0 {
 		if fn, ok := subcommands[args[0]]; ok {
@@ -49,6 +53,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 	return writeOutputFile(opts.outputPath, output, stdout)
 }
 
+// parseRunOptions owns the flag contract for the default `openspec-atlas`
+// command. It returns early for `--version` so callers do not need to supply a
+// scan directory in that case.
 func parseRunOptions(args []string, stderr io.Writer) (runOptions, error) {
 	fs := flag.NewFlagSet("openspec-atlas", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -83,6 +90,8 @@ func parseRunOptions(args []string, stderr io.Writer) (runOptions, error) {
 	}, nil
 }
 
+// writeOutputFile pretty-prints the atlas JSON to disk and emits the success
+// line shown by the CLI when generation finishes.
 func writeOutputFile(path string, output Output, stdout io.Writer) error {
 	data, err := json.MarshalIndent(output, "", "  ")
 	if err != nil {

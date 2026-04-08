@@ -5,6 +5,8 @@ import (
 	"testing"
 )
 
+// TestParseFileGo checks the basic Go parsing flow, including namespace
+// extraction and distinguishing methods from top-level functions.
 func TestParseFileGo(t *testing.T) {
 	t.Parallel()
 
@@ -57,6 +59,8 @@ func TopLevel() {}
 	}
 }
 
+// TestParseFileJavaSpringController verifies that Java annotations are captured
+// and post-processed into fully resolved Spring endpoints.
 func TestParseFileJavaSpringController(t *testing.T) {
 	t.Parallel()
 

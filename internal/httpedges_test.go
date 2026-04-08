@@ -2,6 +2,8 @@ package internal
 
 import "testing"
 
+// TestExtractHTTPCalls verifies that supported client libraries are recognized
+// and that external URLs are excluded from the inventory.
 func TestExtractHTTPCalls(t *testing.T) {
 	t.Parallel()
 
@@ -27,6 +29,8 @@ superagent.delete("http://localhost:3000/api/users/42")
 	}
 }
 
+// TestMatchRoute exercises exact and path-only HTTP edge matching against a
+// normalized backend route index.
 func TestMatchRoute(t *testing.T) {
 	t.Parallel()
 

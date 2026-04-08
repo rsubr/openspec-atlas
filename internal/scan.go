@@ -32,6 +32,8 @@ func walkSourceFiles(projectDirs []string, allFiles bool, stdout, stderr io.Writ
 	return result.files, result.allPaths
 }
 
+// walkProjects scans each requested directory independently and merges the
+// results so one failing project does not block the others.
 func (s scanner) walkProjects(projectDirs []string) scanResult {
 	var result scanResult
 	for _, projectDir := range projectDirs {
@@ -45,6 +47,9 @@ func (s scanner) walkProjects(projectDirs []string) scanResult {
 	return result
 }
 
+// walkProject traverses one project directory, keeps a flat list of every path
+// encountered for the secondary analyzers, and parses only files with a known
+// language configuration.
 func (s scanner) walkProject(projectDir string) ([]FileInfo, []string, error) {
 	var files []FileInfo
 	var allPaths []string
@@ -72,6 +77,8 @@ func (s scanner) walkProject(projectDir string) ([]FileInfo, []string, error) {
 	return files, allPaths, err
 }
 
+// shouldSkip centralizes walk filtering so ignored directories, ignored files,
+// and the repository's .git directory are handled consistently.
 func (s scanner) shouldSkip(path string, d fs.DirEntry, projectDir string, ignoreCache map[string]*ignore.GitIgnore) (bool, error) {
 	if d.IsDir() && d.Name() == ".git" {
 		return true, fs.SkipDir
@@ -85,6 +92,8 @@ func (s scanner) shouldSkip(path string, d fs.DirEntry, projectDir string, ignor
 	return d.IsDir(), nil
 }
 
+// parseSourceFile parses one supported source file. Parse failures are reported
+// to stderr and skipped so a single bad file does not abort the whole scan.
 func (s scanner) parseSourceFile(projectDir, path string) (FileInfo, bool, error) {
 	config, ok := languageForFile(path)
 	if !ok {
@@ -108,6 +117,8 @@ func (s scanner) parseSourceFile(projectDir, path string) (FileInfo, bool, error
 	return fi, true, nil
 }
 
+// displayPathForProject keeps file paths stable in output by expressing each
+// file relative to the project root that was scanned.
 func displayPathForProject(projectDir, path string) (string, error) {
 	rel, err := filepath.Rel(projectDir, path)
 	if err != nil {

@@ -154,6 +154,8 @@ func diffByKey[T any](
 // Individual diff functions
 // --------------------------------------------------------------------------
 
+// diffSymbols compares the flattened symbol inventories and reports added,
+// removed, and kind-changed symbols keyed by file plus symbol name.
 func diffSymbols(baseline, current []FileInfo) []DriftIssue {
 	bMap := flattenSymbols(baseline)
 	cMap := flattenSymbols(current)
@@ -192,6 +194,8 @@ func diffSymbols(baseline, current []FileInfo) []DriftIssue {
 	return issues
 }
 
+// diffEndpoints compares fully resolved HTTP endpoints independent of the
+// symbol names that happen to own them.
 func diffEndpoints(baseline, current []FileInfo) []DriftIssue {
 	bMap := flattenEndpoints(baseline)
 	cMap := flattenEndpoints(current)
@@ -210,6 +214,8 @@ func diffEndpoints(baseline, current []FileInfo) []DriftIssue {
 	return issues
 }
 
+// diffEnvVars reports additions, removals, and changes in whether a variable is
+// considered required or satisfied by a default.
 func diffEnvVars(baseline, current []EnvVar) []DriftIssue {
 	return diffByKey(
 		baseline, current,
@@ -233,6 +239,8 @@ func diffEnvVars(baseline, current []EnvVar) []DriftIssue {
 	)
 }
 
+// diffSchemaModels tracks model additions and removals plus coarse field-count
+// changes for models that still exist in both snapshots.
 func diffSchemaModels(baseline, current []SchemaModel) []DriftIssue {
 	return diffByKey(
 		baseline, current,
@@ -253,6 +261,8 @@ func diffSchemaModels(baseline, current []SchemaModel) []DriftIssue {
 	)
 }
 
+// diffMiddleware treats a middleware registration as stable when its framework,
+// file, and name all match.
 func diffMiddleware(baseline, current []MiddlewareItem) []DriftIssue {
 	return diffByKey(
 		baseline, current,
@@ -267,6 +277,8 @@ func diffMiddleware(baseline, current []MiddlewareItem) []DriftIssue {
 	)
 }
 
+// diffUIComponents reports component additions and removals keyed by framework,
+// file, and component name.
 func diffUIComponents(baseline, current []UIComponent) []DriftIssue {
 	return diffByKey(
 		baseline, current,
@@ -285,6 +297,9 @@ func diffUIComponents(baseline, current []UIComponent) []DriftIssue {
 // Report builder
 // --------------------------------------------------------------------------
 
+// buildDriftReport runs every domain-specific diff, sorts the combined issues
+// for deterministic output, and computes the summary counts used by both CLI
+// renderers.
 func buildDriftReport(baseline, current Output, baselineFile, currentFile string) DriftReport {
 	var issues []DriftIssue
 	issues = append(issues, diffSymbols(baseline.Files, current.Files)...)
@@ -344,6 +359,9 @@ func loadOutputFile(path string) (Output, error) {
 	return out, nil
 }
 
+// runDrift is the drift subcommand entrypoint. It loads the baseline, resolves
+// the current atlas either from disk or by rescanning, emits the report, and
+// finally enforces the requested fail-on policy.
 func runDrift(args []string, stdout, stderr io.Writer) error {
 	opts, err := parseDriftOptions(args, stderr)
 	if err != nil {
@@ -367,6 +385,9 @@ func runDrift(args []string, stdout, stderr io.Writer) error {
 	return checkDriftFailure(report, opts.failOn)
 }
 
+// parseDriftOptions defines the CLI contract for `openspec-atlas drift`,
+// including whether the current state should come from an existing JSON file or
+// from a fresh scan.
 func parseDriftOptions(args []string, stderr io.Writer) (driftOptions, error) {
 	fs := flag.NewFlagSet("openspec-atlas drift", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -408,6 +429,8 @@ func parseDriftOptions(args []string, stderr io.Writer) (driftOptions, error) {
 	}, nil
 }
 
+// loadCurrentOutput either reads the current atlas JSON file named by the user
+// or performs an in-memory scan of the provided directories.
 func loadCurrentOutput(opts driftOptions, stderr io.Writer) (Output, string, error) {
 	if opts.currentPath != "" {
 		current, err := loadOutputFile(opts.currentPath)
@@ -419,6 +442,7 @@ func loadCurrentOutput(opts driftOptions, stderr io.Writer) (Output, string, err
 	return scanProjects(opts.dirs, opts.allFiles, io.Discard, stderr), "", nil
 }
 
+// emitDriftReport chooses between the human-readable and JSON output formats.
 func emitDriftReport(report DriftReport, jsonOut bool, stdout io.Writer) error {
 	if !jsonOut {
 		printDriftReport(report, stdout)
@@ -433,6 +457,8 @@ func emitDriftReport(report DriftReport, jsonOut bool, stdout io.Writer) error {
 	return nil
 }
 
+// checkDriftFailure applies the --fail-on policy after the report has been
+// generated so the user still gets a useful diff before the command exits 1.
 func checkDriftFailure(report DriftReport, failOn DriftKind) error {
 	if failOn == DriftNone {
 		return nil
@@ -445,6 +471,7 @@ func checkDriftFailure(report DriftReport, failOn DriftKind) error {
 	return fmt.Errorf("drift detected: %d %s issue(s)", count, failOn)
 }
 
+// countKind counts the number of issues in the report with the requested kind.
 func countKind(issues []DriftIssue, kind DriftKind) int {
 	n := 0
 	for _, iss := range issues {
@@ -459,6 +486,7 @@ func countKind(issues []DriftIssue, kind DriftKind) int {
 // Human-readable output
 // --------------------------------------------------------------------------
 
+// printDriftReport renders a grouped, scan-friendly report for terminal users.
 func printDriftReport(r DriftReport, w io.Writer) {
 	if r.Summary.Total == 0 {
 		fmt.Fprintln(w, "no drift detected")

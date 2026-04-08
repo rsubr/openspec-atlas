@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+// mustWriteFile creates parent directories as needed and fails the test
+// immediately if the fixture file cannot be written.
 func mustWriteFile(t *testing.T, path, contents string) {
 	t.Helper()
 
@@ -17,6 +19,8 @@ func mustWriteFile(t *testing.T, path, contents string) {
 	}
 }
 
+// mustReadFile reads a fixture file and aborts the test on any filesystem
+// error.
 func mustReadFile(t *testing.T, path string) []byte {
 	t.Helper()
 

@@ -12,6 +12,8 @@ var (
 	prismaFieldRe = regexp.MustCompile(`^\s+(\w+)\s+(\w+)(\?)?\s`)
 )
 
+// newSchemaModel builds the shared metadata for any extracted schema model
+// before fields are populated.
 func newSchemaModel(name, file string, line int, orm ORMKind) SchemaModel {
 	return SchemaModel{
 		Name: name,
@@ -21,6 +23,8 @@ func newSchemaModel(name, file string, line int, orm ORMKind) SchemaModel {
 	}
 }
 
+// extractPrismaModels scans a Prisma schema file and turns each `model` block
+// into a SchemaModel populated with its declared fields.
 func extractPrismaModels(src []byte, file string) []SchemaModel {
 	var models []SchemaModel
 	lines := splitLines(src)
@@ -64,6 +68,8 @@ var (
 	sqlNotNullRe     = regexp.MustCompile(`(?i)NOT\s+NULL`)
 )
 
+// extractSQLModels finds CREATE TABLE statements in a SQL file and builds one
+// SchemaModel per table with the columns found inside the statement body.
 func extractSQLModels(src []byte, file string) []SchemaModel {
 	var models []SchemaModel
 	lines := splitLines(src)
@@ -79,6 +85,9 @@ func extractSQLModels(src []byte, file string) []SchemaModel {
 	return models
 }
 
+// extractSQLFields walks the body of a CREATE TABLE statement, tracking nested
+// parentheses so table-level constraints do not terminate field collection too
+// early.
 func extractSQLFields(lines []string, start int) []SchemaField {
 	var fields []SchemaField
 	depth := strings.Count(lines[start], "(") - strings.Count(lines[start], ")")
@@ -93,6 +102,8 @@ func extractSQLFields(lines []string, start int) []SchemaField {
 	return fields
 }
 
+// parseSQLField turns one SQL table-body line into a SchemaField when the line
+// appears to describe a column instead of a constraint.
 func parseSQLField(line string) (SchemaField, bool) {
 	match := sqlColumnRe.FindStringSubmatch(line)
 	if match == nil {
@@ -109,6 +120,8 @@ func parseSQLField(line string) (SchemaField, bool) {
 	}, true
 }
 
+// isSQLConstraintKeyword filters out leading keywords used by table-level
+// constraints and indexes.
 func isSQLConstraintKeyword(name string) bool {
 	switch strings.ToUpper(name) {
 	case "PRIMARY", "UNIQUE", "FOREIGN", "INDEX", "KEY", "CHECK", "CONSTRAINT":
@@ -128,6 +141,9 @@ var (
 	saNullRe   = regexp.MustCompile(`(?i)nullable\s*=\s*(True|False)`)
 )
 
+// extractSQLAlchemyModels scans Python model classes that inherit from a
+// SQLAlchemy base and collects simple Column()/mapped_column() assignments until
+// the class body ends.
 func extractSQLAlchemyModels(src []byte, file string) []SchemaModel {
 	var models []SchemaModel
 	lines := splitLines(src)
@@ -162,16 +178,22 @@ func extractSQLAlchemyModels(src []byte, file string) []SchemaModel {
 	return models
 }
 
+// classBodyIndent derives the indentation prefix expected for lines that still
+// belong to the current Python class body.
 func classBodyIndent(line string) string {
 	return leadingSpaces(line) + " "
 }
 
+// endsPythonClass reports when parsing has dedented out of the current class
+// body, while allowing shallower comment lines to be ignored.
 func endsPythonClass(line, indent string) bool {
 	return len(line) > 0 &&
 		!strings.HasPrefix(line, indent) &&
 		!strings.HasPrefix(strings.TrimSpace(line), "#")
 }
 
+// parseSQLAlchemyField extracts the field name, type, and nullable setting from
+// a simple SQLAlchemy column assignment.
 func parseSQLAlchemyField(line string) (SchemaField, bool) {
 	match := saColumnRe.FindStringSubmatch(line)
 	if match == nil {
@@ -235,6 +257,8 @@ func extractTypeORMModels(files []FileInfo) []SchemaModel {
 // at least one field tag containing "gorm" in the raw source.
 var gormTagRe = regexp.MustCompile("(?m)`[^`]*gorm:\"[^`]*`")
 
+// extractGORMModels identifies Go files that contain gorm tags and then treats
+// every parsed struct in those files as a GORM model candidate.
 func extractGORMModels(allPaths []string, files []FileInfo, displayRoot string) []SchemaModel {
 	// Build a set of .go files that contain gorm tags
 	gormFiles := map[string]bool{}

@@ -20,6 +20,8 @@ import (
 	typescript "github.com/smacker/go-tree-sitter/typescript/typescript"
 )
 
+// init declares the full language registry and prepares the extension lookup
+// table used by the scanner.
 func init() {
 	registry = []*LanguageConfig{
 		{

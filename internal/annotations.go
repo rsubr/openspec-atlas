@@ -69,6 +69,8 @@ func extractAnnotationsFromDecl(declNode *sitter.Node, src []byte, config *Langu
 	return annotations
 }
 
+// annotationTargets picks the node or nodes that should be searched for
+// annotations according to the language's configured scoping strategy.
 func annotationTargets(declNode *sitter.Node, config *LanguageConfig) []*sitter.Node {
 	switch config.AnnotationContainerType {
 	case "parent":

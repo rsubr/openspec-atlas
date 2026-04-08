@@ -8,6 +8,8 @@ import (
 	"testing"
 )
 
+// TestWalkSourceFilesContinuesOnReadError ensures a single unreadable file does
+// not abort the directory walk or prevent healthy files from being parsed.
 func TestWalkSourceFilesContinuesOnReadError(t *testing.T) {
 	t.Parallel()
 

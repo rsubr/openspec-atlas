@@ -7,6 +7,8 @@ import (
 	ignore "github.com/sabhiram/go-gitignore"
 )
 
+// TestLanguageForFile ensures extension lookup is case-insensitive and maps
+// representative files to the expected language config.
 func TestLanguageForFile(t *testing.T) {
 	t.Parallel()
 
@@ -34,6 +36,8 @@ func TestLanguageForFile(t *testing.T) {
 	}
 }
 
+// TestJoinPaths checks the small route-joining helper used by Spring endpoint
+// resolution.
 func TestJoinPaths(t *testing.T) {
 	t.Parallel()
 
@@ -59,6 +63,8 @@ func TestJoinPaths(t *testing.T) {
 	}
 }
 
+// TestResolveSpringEndpoints ensures class-level and method-level Spring
+// annotations are combined into the final endpoint path and verb.
 func TestResolveSpringEndpoints(t *testing.T) {
 	t.Parallel()
 
@@ -97,6 +103,9 @@ func TestResolveSpringEndpoints(t *testing.T) {
 	}
 }
 
+// TestBuildHierarchyAssignsLeavesToSmallestContainer verifies that nested
+// leaves attach to the narrowest enclosing container instead of the outermost
+// one.
 func TestBuildHierarchyAssignsLeavesToSmallestContainer(t *testing.T) {
 	t.Parallel()
 
@@ -119,6 +128,8 @@ func TestBuildHierarchyAssignsLeavesToSmallestContainer(t *testing.T) {
 	}
 }
 
+// TestIsGitIgnored checks that .gitignore rules from the scan root are applied
+// to both files and nested directories.
 func TestIsGitIgnored(t *testing.T) {
 	t.Parallel()
 

@@ -27,6 +27,9 @@ var jsxReturnRe = regexp.MustCompile(`return\s*\(?\s*<[A-Z][A-Za-z]|return\s*<[a
 var reactPropsInterfaceRe = regexp.MustCompile(`(?m)^(?:interface|type)\s+\w+Props(?:\s*=)?\s*\{([^}]+)\}`)
 var reactPropLineRe = regexp.MustCompile(`^\s*(\w+)\??:`)
 
+// extractReactComponents uses regex heuristics to find exported React
+// components in TSX/JSX files and attaches any simple props interface it can
+// recover from the same file.
 func extractReactComponents(src []byte, file string) []UIComponent {
 	if !jsxReturnRe.Match(src) && !bytes.Contains(src, []byte("React")) {
 		return nil
@@ -58,6 +61,8 @@ func extractReactComponents(src []byte, file string) []UIComponent {
 	return components
 }
 
+// extractReactProps pulls prop names out of a nearby `FooProps` interface or
+// type literal. It is intentionally shallow but useful for summary output.
 func extractReactProps(src []byte) []string {
 	var props []string
 	if pm := reactPropsInterfaceRe.FindSubmatch(src); pm != nil {
@@ -71,6 +76,8 @@ func extractReactProps(src []byte) []string {
 	return props
 }
 
+// reactComponentName returns whichever capture group matched the component name
+// in the main React component regex.
 func reactComponentName(src []byte, match []int) string {
 	if match[2] >= 0 {
 		return string(src[match[2]:match[3]])
@@ -81,6 +88,8 @@ func reactComponentName(src []byte, match []int) string {
 	return ""
 }
 
+// isAllCapsIdentifier filters out names that are more likely constants than
+// component functions.
 func isAllCapsIdentifier(name string) bool {
 	return name == strings.ToUpper(name)
 }
@@ -91,6 +100,8 @@ func isAllCapsIdentifier(name string) bool {
 var sveltePropsRe = regexp.MustCompile(`(?m)^\s*export\s+let\s+(\w+)`)
 var svelteScriptRe = regexp.MustCompile(`(?s)<script[^>]*>(.*?)</script>`)
 
+// extractSvelteComponent derives one component per .svelte file and treats each
+// exported `let` inside the script block as a public prop.
 func extractSvelteComponent(src []byte, file string) *UIComponent {
 	name := svelteComponentName(file)
 	if name == "" {
@@ -188,6 +199,7 @@ func extractVueComponents(files []FileInfo) []UIComponent {
 	return components
 }
 
+// vueComponentName derives a component name directly from the .vue filename.
 func vueComponentName(path string) string {
 	base := path
 	if idx := strings.LastIndexAny(base, "/\\"); idx >= 0 {
@@ -203,6 +215,8 @@ func vueComponentName(path string) string {
 	return strings.ToUpper(raw[:1]) + raw[1:]
 }
 
+// collectVueProps promotes parsed `props` or `defineProps` symbols into the
+// prop list shown in the UI component inventory.
 func collectVueProps(symbols []Symbol) []string {
 	var props []string
 	for _, sym := range symbols {
@@ -218,6 +232,8 @@ func collectVueProps(symbols []Symbol) []string {
 
 // ---- Dispatcher ------------------------------------------------------------
 
+// collectUIComponents merges component inventories from symbol-based analyzers
+// and lightweight source scans into one unified output slice.
 func collectUIComponents(allPaths []string, files []FileInfo, displayRoot string) []UIComponent {
 	var components []UIComponent
 
