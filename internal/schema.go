@@ -1,4 +1,4 @@
-package internals
+package internal
 
 // Annotation holds a decorator/attribute name and its optional string argument.
 type Annotation struct {

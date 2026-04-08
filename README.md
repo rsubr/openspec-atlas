@@ -191,6 +191,7 @@ openspec-atlas -all /path/to/repo
 |---|---|---|
 | `-o` | `structure.json` | Output file path |
 | `-all` | off | Bypass `.gitignore` and process all files |
+| `-version` | — | Print version and exit |
 
 ---
 
@@ -240,7 +241,7 @@ Drift is detected across all output sections: symbols, endpoints, env vars, sche
 | `--baseline` | — | Path to baseline `structure.json` (required) |
 | `--current` | — | Path to current `structure.json`; re-scans dirs if absent |
 | `--json` | off | Emit machine-readable JSON report |
-| `--fail-on` | `removed` | Exit 1 if any issue of this kind exists (`added`, `removed`, `changed`, `none`) |
+| `--fail-on` | `removed` | Exit 1 if any issue of this kind exists; must be one of `added`, `removed`, `changed`, `none` — an invalid value is rejected with an error |
 | `--all` | off | Bypass `.gitignore` when re-scanning |
 
 ---
@@ -295,6 +296,40 @@ Built on [tree-sitter](https://tree-sitter.github.io/tree-sitter/) via [go-tree-
 - A flag per query indicating whether the symbol is a container (can own children)
 
 Hierarchy is resolved by comparing byte ranges from `@decl` captures — no language-specific logic needed in the extraction engine.
+
+---
+
+## Internal Structure
+
+All logic lives in the `internals/` package. Key files:
+
+| File | Responsibility |
+|---|---|
+| `cli.go` | Entry point; subcommand dispatch map; flag parsing |
+| `scan.go` | `walkSourceFiles` (directory walk + parse) and `scanProjects` (orchestrator) |
+| `parse.go` | Tree-sitter file parsing, namespace extraction, symbol extraction |
+| `annotations.go` | Decorator/attribute extraction from parse tree nodes |
+| `hierarchy.go` | Assigns flat raw symbols into a nested parent/child tree |
+| `drift.go` | `drift` subcommand: generic `diffByKey` helper, per-category diff functions, `runDrift` |
+| `config.go` | `LanguageConfig` type; compiled tree-sitter query registry |
+| `languages.go` | Per-language configuration (queries, extensions, post-processors) |
+| `endpoints.go` | Spring Boot / ASP.NET endpoint resolution post-processor |
+| `envvars.go` | Environment variable extraction across source and `.env` files |
+| `httpedges.go` | Outgoing HTTP call detection and backend route matching |
+| `dbschema.go` | Schema model extraction (Prisma, SQL, SQLAlchemy, TypeORM, GORM) |
+| `middleware.go` | Middleware registration detection (Express, NestJS, FastAPI) |
+| `uicomponents.go` | UI component detection (React, Svelte, Angular, Vue) |
+| `exthelpers.go` | Shared utilities: file I/O, path helpers, line indexing, string utilities |
+| `ignore.go` | `.gitignore` evaluation with directory-level caching |
+| `vue.go` | Vue SFC `<script>` block extractor |
+
+### Design notes
+
+**Subcommand dispatch** — `cli.go` uses a `subcommands` map (`map[string]func([]string, io.Writer, io.Writer) error`). Adding a new subcommand is a one-line registration.
+
+**Generic diff** — `drift.go` exposes `diffByKey[T any](baseline, current []T, key, removed, added, changed)`. All four flat-list diff functions (`diffEnvVars`, `diffSchemaModels`, `diffMiddleware`, `diffUIComponents`) delegate to this helper; only `diffSymbols` and `diffEndpoints` use hand-rolled maps because they operate on pre-flattened intermediate representations.
+
+**Collector pattern** — Every extended analyser (`collectEnvVars`, `collectHTTPEdges`, `collectSchemaModels`, `collectMiddleware`, `collectUIComponents`) takes the same `(allPaths []string, files []FileInfo, displayRoot string)` signature. `scanProjects` calls them all after the walk completes.
 
 ---
 

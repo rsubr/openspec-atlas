@@ -1,4 +1,4 @@
-package internals
+package internal
 
 import (
 	"bufio"
@@ -37,6 +37,33 @@ type httpCallInfo struct {
 	line   int
 }
 
+// isInternalURL reports whether url should be collected as an internal API call.
+// It accepts path-relative URLs (/...) and localhost/127.0.0.1 absolute URLs.
+func isInternalURL(url string) bool {
+	if strings.HasPrefix(url, "/") {
+		return true
+	}
+	if strings.HasPrefix(url, "http") {
+		return strings.Contains(url, "localhost") || strings.Contains(url, "127.0.0.1")
+	}
+	return false
+}
+
+// extractURLPath strips the scheme and host from url and returns only the path.
+// If url is already a path (starts with /), it is returned unchanged.
+func extractURLPath(url string) string {
+	if !strings.HasPrefix(url, "http") {
+		return url
+	}
+	if idx := strings.Index(url, "://"); idx >= 0 {
+		rest := url[idx+3:]
+		if slash := strings.IndexByte(rest, '/'); slash >= 0 {
+			return rest[slash:]
+		}
+	}
+	return "/"
+}
+
 // extractHTTPCalls scans source lines for outgoing HTTP calls.
 func extractHTTPCalls(src []byte) []httpCallInfo {
 	var results []httpCallInfo
@@ -71,26 +98,10 @@ func extractHTTPCalls(src []byte) []httpCallInfo {
 				url = m[2]
 			}
 
-			// Skip non-path URLs (no leading / and no http scheme that looks like internal)
-			if !strings.HasPrefix(url, "/") && !strings.HasPrefix(url, "http") {
+			if !isInternalURL(url) {
 				continue
 			}
-			// Skip fully qualified external URLs (keep relative / and /api paths)
-			if strings.HasPrefix(url, "http") {
-				// Only keep if it looks like a localhost / 127.0.0.1 / internal URL
-				if !strings.Contains(url, "localhost") && !strings.Contains(url, "127.0.0.1") {
-					continue
-				}
-				// Extract just the path portion
-				if idx := strings.Index(url, "://"); idx >= 0 {
-					rest := url[idx+3:]
-					if slash := strings.IndexByte(rest, '/'); slash >= 0 {
-						url = rest[slash:]
-					} else {
-						url = "/"
-					}
-				}
-			}
+			url = extractURLPath(url)
 
 			results = append(results, httpCallInfo{
 				method: method,
@@ -193,12 +204,3 @@ func collectHTTPEdges(allPaths []string, files []FileInfo, displayRoot string) [
 	return edges
 }
 
-// fileExt returns the lowercase extension of a path (e.g. ".ts").
-func fileExt(path string) string {
-	for i := len(path) - 1; i >= 0 && path[i] != '/' && path[i] != '\\'; i-- {
-		if path[i] == '.' {
-			return strings.ToLower(path[i:])
-		}
-	}
-	return ""
-}

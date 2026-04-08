@@ -2,7 +2,7 @@
 set -euo pipefail
 
 VERSION=$(cat VERSION)
-LDFLAGS="-s -w -X 'openspec-atlas/internals.Version=${VERSION}' -extldflags '-static'"
+LDFLAGS="-s -w -X 'openspec-atlas/internal.Version=${VERSION}' -extldflags '-static'"
 
 mkdir -p dist
 

@@ -1,4 +1,4 @@
-package internals
+package internal
 
 import (
 	"encoding/json"
@@ -41,6 +41,17 @@ type DriftReport struct {
 	CurrentFile  string       `json:"current_file,omitempty"`
 	Issues       []DriftIssue `json:"issues"`
 	Summary      DriftSummary `json:"summary"`
+}
+
+// parseDriftKind validates a --fail-on flag value and returns the corresponding
+// DriftKind. "none" is accepted and returned as an empty DriftKind.
+func parseDriftKind(s string) (DriftKind, error) {
+	switch s {
+	case "added", "removed", "changed", "none":
+		return DriftKind(s), nil
+	default:
+		return "", fmt.Errorf("invalid --fail-on value %q: must be added, removed, changed, or none", s)
+	}
 }
 
 // --------------------------------------------------------------------------
@@ -88,6 +99,44 @@ func flattenEndpoints(files []FileInfo) map[string]string {
 		walk(fi.Symbols, fi.Path)
 	}
 	return m
+}
+
+// diffByKey is a generic helper that computes added/removed/changed DriftIssues
+// from two slices. key extracts a string map key from an item; removed and added
+// build the DriftIssue for each case; changed, if non-nil, compares a baseline
+// item against its current counterpart and returns (issue, true) when they differ.
+func diffByKey[T any](
+	baseline, current []T,
+	key     func(T) string,
+	removed func(b T) DriftIssue,
+	added   func(c T) DriftIssue,
+	changed func(b, c T) (DriftIssue, bool),
+) []DriftIssue {
+	bMap := make(map[string]T, len(baseline))
+	for _, v := range baseline {
+		bMap[key(v)] = v
+	}
+	cMap := make(map[string]T, len(current))
+	for _, v := range current {
+		cMap[key(v)] = v
+	}
+
+	var issues []DriftIssue
+	for k, bv := range bMap {
+		if cv, ok := cMap[k]; !ok {
+			issues = append(issues, removed(bv))
+		} else if changed != nil {
+			if iss, ok := changed(bv, cv); ok {
+				issues = append(issues, iss)
+			}
+		}
+	}
+	for k, cv := range cMap {
+		if _, ok := bMap[k]; !ok {
+			issues = append(issues, added(cv))
+		}
+	}
+	return issues
 }
 
 // --------------------------------------------------------------------------
@@ -139,192 +188,86 @@ func diffEndpoints(baseline, current []FileInfo) []DriftIssue {
 
 	for key, file := range bMap {
 		if _, ok := cMap[key]; !ok {
-			issues = append(issues, DriftIssue{
-				Kind:     DriftRemoved,
-				Category: "endpoint",
-				Name:     key,
-				File:     file,
-			})
+			issues = append(issues, DriftIssue{Kind: DriftRemoved, Category: "endpoint", Name: key, File: file})
 		}
 	}
 	for key, file := range cMap {
 		if _, ok := bMap[key]; !ok {
-			issues = append(issues, DriftIssue{
-				Kind:     DriftAdded,
-				Category: "endpoint",
-				Name:     key,
-				File:     file,
-			})
+			issues = append(issues, DriftIssue{Kind: DriftAdded, Category: "endpoint", Name: key, File: file})
 		}
 	}
 	return issues
 }
 
 func diffEnvVars(baseline, current []EnvVar) []DriftIssue {
-	bMap := map[string]EnvVar{}
-	for _, v := range baseline {
-		bMap[v.Name] = v
-	}
-	cMap := map[string]EnvVar{}
-	for _, v := range current {
-		cMap[v.Name] = v
-	}
-
-	var issues []DriftIssue
-	for name, bv := range bMap {
-		if cv, ok := cMap[name]; !ok {
-			issues = append(issues, DriftIssue{
-				Kind:     DriftRemoved,
-				Category: "env_var",
-				Name:     name,
-			})
-		} else if cv.HasDefault != bv.HasDefault || cv.Required != bv.Required {
-			detail := ""
-			if cv.Required != bv.Required {
-				detail = fmt.Sprintf("required: %v → %v", bv.Required, cv.Required)
-			} else {
-				detail = fmt.Sprintf("has_default: %v → %v", bv.HasDefault, cv.HasDefault)
+	return diffByKey(
+		baseline, current,
+		func(v EnvVar) string { return v.Name },
+		func(b EnvVar) DriftIssue {
+			return DriftIssue{Kind: DriftRemoved, Category: "env_var", Name: b.Name}
+		},
+		func(c EnvVar) DriftIssue {
+			return DriftIssue{Kind: DriftAdded, Category: "env_var", Name: c.Name}
+		},
+		func(b, c EnvVar) (DriftIssue, bool) {
+			if c.HasDefault == b.HasDefault && c.Required == b.Required {
+				return DriftIssue{}, false
 			}
-			issues = append(issues, DriftIssue{
-				Kind:     DriftChanged,
-				Category: "env_var",
-				Name:     name,
-				Detail:   detail,
-			})
-		}
-	}
-	for name := range cMap {
-		if _, ok := bMap[name]; !ok {
-			issues = append(issues, DriftIssue{
-				Kind:     DriftAdded,
-				Category: "env_var",
-				Name:     name,
-			})
-		}
-	}
-	return issues
+			detail := fmt.Sprintf("has_default: %v → %v", b.HasDefault, c.HasDefault)
+			if c.Required != b.Required {
+				detail = fmt.Sprintf("required: %v → %v", b.Required, c.Required)
+			}
+			return DriftIssue{Kind: DriftChanged, Category: "env_var", Name: b.Name, Detail: detail}, true
+		},
+	)
 }
 
 func diffSchemaModels(baseline, current []SchemaModel) []DriftIssue {
-	key := func(m SchemaModel) string { return m.ORM + "::" + m.Name }
-
-	bMap := map[string]SchemaModel{}
-	for _, m := range baseline {
-		bMap[key(m)] = m
-	}
-	cMap := map[string]SchemaModel{}
-	for _, m := range current {
-		cMap[key(m)] = m
-	}
-
-	var issues []DriftIssue
-	for k, bm := range bMap {
-		if cm, ok := cMap[k]; !ok {
-			issues = append(issues, DriftIssue{
-				Kind:     DriftRemoved,
-				Category: "schema_model",
-				Name:     bm.Name,
-				File:     bm.File,
-				Detail:   bm.ORM,
-			})
-		} else if len(cm.Fields) != len(bm.Fields) {
-			issues = append(issues, DriftIssue{
-				Kind:     DriftChanged,
-				Category: "schema_model",
-				Name:     bm.Name,
-				File:     cm.File,
-				Detail:   fmt.Sprintf("fields: %d → %d", len(bm.Fields), len(cm.Fields)),
-			})
-		}
-	}
-	for k, cm := range cMap {
-		if _, ok := bMap[k]; !ok {
-			issues = append(issues, DriftIssue{
-				Kind:     DriftAdded,
-				Category: "schema_model",
-				Name:     cm.Name,
-				File:     cm.File,
-				Detail:   cm.ORM,
-			})
-		}
-	}
-	return issues
+	return diffByKey(
+		baseline, current,
+		func(m SchemaModel) string { return m.ORM + "::" + m.Name },
+		func(b SchemaModel) DriftIssue {
+			return DriftIssue{Kind: DriftRemoved, Category: "schema_model", Name: b.Name, File: b.File, Detail: b.ORM}
+		},
+		func(c SchemaModel) DriftIssue {
+			return DriftIssue{Kind: DriftAdded, Category: "schema_model", Name: c.Name, File: c.File, Detail: c.ORM}
+		},
+		func(b, c SchemaModel) (DriftIssue, bool) {
+			if len(c.Fields) == len(b.Fields) {
+				return DriftIssue{}, false
+			}
+			detail := fmt.Sprintf("fields: %d → %d", len(b.Fields), len(c.Fields))
+			return DriftIssue{Kind: DriftChanged, Category: "schema_model", Name: b.Name, File: c.File, Detail: detail}, true
+		},
+	)
 }
 
 func diffMiddleware(baseline, current []MiddlewareItem) []DriftIssue {
-	key := func(m MiddlewareItem) string { return m.Framework + "::" + m.File + "::" + m.Name }
-
-	bSet := map[string]MiddlewareItem{}
-	for _, m := range baseline {
-		bSet[key(m)] = m
-	}
-	cSet := map[string]MiddlewareItem{}
-	for _, m := range current {
-		cSet[key(m)] = m
-	}
-
-	var issues []DriftIssue
-	for k, bm := range bSet {
-		if _, ok := cSet[k]; !ok {
-			issues = append(issues, DriftIssue{
-				Kind:     DriftRemoved,
-				Category: "middleware",
-				Name:     bm.Name,
-				File:     bm.File,
-				Detail:   bm.Framework + "/" + bm.Type,
-			})
-		}
-	}
-	for k, cm := range cSet {
-		if _, ok := bSet[k]; !ok {
-			issues = append(issues, DriftIssue{
-				Kind:     DriftAdded,
-				Category: "middleware",
-				Name:     cm.Name,
-				File:     cm.File,
-				Detail:   cm.Framework + "/" + cm.Type,
-			})
-		}
-	}
-	return issues
+	return diffByKey(
+		baseline, current,
+		func(m MiddlewareItem) string { return m.Framework + "::" + m.File + "::" + m.Name },
+		func(b MiddlewareItem) DriftIssue {
+			return DriftIssue{Kind: DriftRemoved, Category: "middleware", Name: b.Name, File: b.File, Detail: b.Framework + "/" + b.Type}
+		},
+		func(c MiddlewareItem) DriftIssue {
+			return DriftIssue{Kind: DriftAdded, Category: "middleware", Name: c.Name, File: c.File, Detail: c.Framework + "/" + c.Type}
+		},
+		nil,
+	)
 }
 
 func diffUIComponents(baseline, current []UIComponent) []DriftIssue {
-	key := func(c UIComponent) string { return c.Framework + "::" + c.File + "::" + c.Name }
-
-	bSet := map[string]UIComponent{}
-	for _, c := range baseline {
-		bSet[key(c)] = c
-	}
-	cSet := map[string]UIComponent{}
-	for _, c := range current {
-		cSet[key(c)] = c
-	}
-
-	var issues []DriftIssue
-	for k, bc := range bSet {
-		if _, ok := cSet[k]; !ok {
-			issues = append(issues, DriftIssue{
-				Kind:     DriftRemoved,
-				Category: "ui_component",
-				Name:     bc.Name,
-				File:     bc.File,
-				Detail:   bc.Framework,
-			})
-		}
-	}
-	for k, cc := range cSet {
-		if _, ok := bSet[k]; !ok {
-			issues = append(issues, DriftIssue{
-				Kind:     DriftAdded,
-				Category: "ui_component",
-				Name:     cc.Name,
-				File:     cc.File,
-				Detail:   cc.Framework,
-			})
-		}
-	}
-	return issues
+	return diffByKey(
+		baseline, current,
+		func(c UIComponent) string { return c.Framework + "::" + c.File + "::" + c.Name },
+		func(b UIComponent) DriftIssue {
+			return DriftIssue{Kind: DriftRemoved, Category: "ui_component", Name: b.Name, File: b.File, Detail: b.Framework}
+		},
+		func(c UIComponent) DriftIssue {
+			return DriftIssue{Kind: DriftAdded, Category: "ui_component", Name: c.Name, File: c.File, Detail: c.Framework}
+		},
+		nil,
+	)
 }
 
 // --------------------------------------------------------------------------
@@ -377,6 +320,19 @@ func buildDriftReport(baseline, current Output, baselineFile, currentFile string
 // CLI handler
 // --------------------------------------------------------------------------
 
+// loadOutputFile reads and unmarshals an Output JSON file.
+func loadOutputFile(path string) (Output, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Output{}, fmt.Errorf("read %s: %w", path, err)
+	}
+	var out Output
+	if err := json.Unmarshal(data, &out); err != nil {
+		return Output{}, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return out, nil
+}
+
 func runDrift(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("openspec-atlas drift", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -399,26 +355,22 @@ func runDrift(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("--baseline is required")
 	}
 
-	// Load baseline
-	baselineData, err := os.ReadFile(*baselinePath)
+	failOnKind, err := parseDriftKind(*failOn)
 	if err != nil {
-		return fmt.Errorf("read baseline %s: %w", *baselinePath, err)
-	}
-	var baseline Output
-	if err := json.Unmarshal(baselineData, &baseline); err != nil {
-		return fmt.Errorf("parse baseline %s: %w", *baselinePath, err)
+		return err
 	}
 
-	// Obtain current output
+	baseline, err := loadOutputFile(*baselinePath)
+	if err != nil {
+		return err
+	}
+
 	var current Output
 	usedCurrentFile := *currentPath
 	if *currentPath != "" {
-		data, err := os.ReadFile(*currentPath)
+		current, err = loadOutputFile(*currentPath)
 		if err != nil {
-			return fmt.Errorf("read current %s: %w", *currentPath, err)
-		}
-		if err := json.Unmarshal(data, &current); err != nil {
-			return fmt.Errorf("parse current %s: %w", *currentPath, err)
+			return err
 		}
 	} else {
 		dirs := fs.Args()
@@ -441,13 +393,8 @@ func runDrift(args []string, stdout, stderr io.Writer) error {
 		printDriftReport(report, stdout)
 	}
 
-	// Exit behaviour
-	if *failOn != "none" {
-		for _, iss := range report.Issues {
-			if string(iss.Kind) == *failOn {
-				return fmt.Errorf("drift detected: %d %s issue(s)", countKind(report.Issues, DriftKind(*failOn)), *failOn)
-			}
-		}
+	if failOnKind != "none" && countKind(report.Issues, failOnKind) > 0 {
+		return fmt.Errorf("drift detected: %d %s issue(s)", countKind(report.Issues, failOnKind), failOnKind)
 	}
 	return nil
 }

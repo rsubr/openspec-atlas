@@ -1,4 +1,4 @@
-package internals
+package internal
 
 import (
 	"github.com/smacker/go-tree-sitter/bash"

@@ -3,9 +3,9 @@ package main
 import (
 	"os"
 
-	"openspec-atlas/internals"
+	"openspec-atlas/internal"
 )
 
 func main() {
-	os.Exit(internals.RunCLI(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(internal.RunCLI(os.Args[1:], os.Stdout, os.Stderr))
 }

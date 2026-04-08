@@ -1,8 +1,6 @@
-package internals
+package internal
 
 import (
-	"bufio"
-	"bytes"
 	"regexp"
 	"strings"
 )
@@ -139,8 +137,9 @@ func extractSQLAlchemyModels(src []byte, file string) []SchemaModel {
 			continue
 		}
 		if inClass && current != nil {
-			// Detect end of class by non-empty line with equal or less indent
-			if len(line) > 0 && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") &&
+			// Detect end of class: a non-empty, non-comment line that does not
+			// start with the class body's indent level signals we have left the class.
+			if len(line) > 0 && !strings.HasPrefix(line, indent) &&
 				!strings.HasPrefix(strings.TrimSpace(line), "#") {
 				models = append(models, *current)
 				current = nil
@@ -163,7 +162,6 @@ func extractSQLAlchemyModels(src []byte, file string) []SchemaModel {
 				})
 			}
 		}
-		_ = indent
 	}
 	if current != nil {
 		models = append(models, *current)
@@ -254,14 +252,6 @@ func extractGORMModels(allPaths []string, files []FileInfo, displayRoot string) 
 	return models
 }
 
-// absolutePath reconstructs an absolute path from a display path + root.
-func absolutePath(display, root string) string {
-	if strings.HasPrefix(display, "/") {
-		return display
-	}
-	return root + "/" + display
-}
-
 // ---- Dispatcher ------------------------------------------------------------
 
 // schemaExtensions maps file extensions to extractor functions.
@@ -298,22 +288,3 @@ func collectSchemaModels(allPaths []string, files []FileInfo, displayRoot string
 	return models
 }
 
-// ---- Helpers ---------------------------------------------------------------
-
-func splitLines(src []byte) []string {
-	var lines []string
-	scanner := bufio.NewScanner(bytes.NewReader(src))
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-	return lines
-}
-
-func leadingSpaces(s string) string {
-	for i, r := range s {
-		if r != ' ' && r != '\t' {
-			return s[:i]
-		}
-	}
-	return s
-}

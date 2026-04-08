@@ -1,4 +1,4 @@
-package internals
+package internal
 
 import (
 	"bufio"
@@ -231,30 +231,3 @@ func collectUIComponents(allPaths []string, files []FileInfo, displayRoot string
 	return components
 }
 
-// ---- Utilities -------------------------------------------------------------
-
-// buildLineIndex builds a slice of byte offsets where each line starts,
-// enabling O(log n) line-number lookup for a byte offset.
-func buildLineIndex(src []byte) []int {
-	idx := []int{0}
-	for i, b := range src {
-		if b == '\n' {
-			idx = append(idx, i+1)
-		}
-	}
-	return idx
-}
-
-// lineForOffset returns the 1-based line number for a byte offset.
-func lineForOffset(lineIndex []int, offset int) int {
-	lo, hi := 0, len(lineIndex)-1
-	for lo < hi {
-		mid := (lo + hi + 1) / 2
-		if lineIndex[mid] <= offset {
-			lo = mid
-		} else {
-			hi = mid - 1
-		}
-	}
-	return lo + 1
-}
