@@ -42,9 +42,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("at least one directory is required")
 	}
 
-	files := scanProjects(dirs, *allFiles, stdout, stderr)
+	output := scanProjects(dirs, *allFiles, stdout, stderr)
 
-	data, err := json.MarshalIndent(Output{Files: files}, "", "  ")
+	data, err := json.MarshalIndent(output, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal output: %w", err)
 	}
